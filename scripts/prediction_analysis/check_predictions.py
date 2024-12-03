@@ -15,6 +15,7 @@ def evaluate_predictions(fixtures, predictions):
     """Evaluate predictions against actual results."""
     correct_results = 0
     correct_scores = 0
+    correct_over_under = 0
     total_evaluated = 0
     
     print("\nDetailed Predictions vs Actual Results:")
@@ -54,9 +55,21 @@ def evaluate_predictions(fixtures, predictions):
             else:
                 print("✗ Incorrect score")
                 
+            # Check over/under 2.5 goals
+            actual_total_goals = actual_home_goals + actual_away_goals
+            predicted_total_goals = predicted_home_goals + predicted_away_goals
+            actual_over_under = 'Over' if actual_total_goals > 2.5 else 'Under'
+            predicted_over_under = 'Over' if predicted_total_goals > 2.5 else 'Under'
+            
+            if actual_over_under == predicted_over_under:
+                correct_over_under += 1
+                print(f"✓ Correct over/under 2.5 prediction ({predicted_over_under})")
+            else:
+                print(f"✗ Incorrect over/under 2.5 prediction (Predicted: {predicted_over_under}, Actual: {actual_over_under})")
+                
             total_evaluated += 1
 
-    return correct_results, correct_scores, total_evaluated
+    return correct_results, correct_scores, correct_over_under, total_evaluated
 
 if __name__ == "__main__":
     fixtures_file = 'premier_league_fixtures.json'
@@ -65,9 +78,10 @@ if __name__ == "__main__":
     fixtures = load_fixtures(fixtures_file)
     predictions = load_predictions(predictions_file)
 
-    correct_results, correct_scores, total_evaluated = evaluate_predictions(fixtures, predictions)
+    correct_results, correct_scores, correct_over_under, total_evaluated = evaluate_predictions(fixtures, predictions)
 
     print("\nSummary:")
     print("--------")
     print(f"Correct match results: {correct_results} out of {total_evaluated} ({(correct_results/total_evaluated)*100:.1f}%)")
-    print(f"Correct exact scores: {correct_scores} out of {total_evaluated} ({(correct_scores/total_evaluated)*100:.1f}%)") 
+    print(f"Correct exact scores: {correct_scores} out of {total_evaluated} ({(correct_scores/total_evaluated)*100:.1f}%)")
+    print(f"Correct over/under 2.5 goals predictions: {correct_over_under} out of {total_evaluated} ({(correct_over_under/total_evaluated)*100:.1f}%)") 

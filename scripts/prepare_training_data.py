@@ -192,28 +192,47 @@ def get_h2h_features(home_team_name, away_team_name):
             'h2h_away_clean_sheets': 0
         }
 
-def prepare_training_data(fixtures):
-    """Prepare training data with team names and momentum"""
+def prepare_training_data(historical_fixtures, future_fixtures=None, is_training=True):
+    """
+    Prepare data by combining fixtures with historical form
+    
+    Args:
+        historical_fixtures: Dictionary containing past match data
+        future_fixtures: Optional list of future fixtures (for test data)
+        is_training: Boolean indicating if this is for training (True) or prediction (False)
+    """
     data = []
     
-    fixtures.sort(key=lambda x: x['kickoff']['timestamp'])
+    # Convert historical fixtures to a format easier to search
+    historical_data = historical_fixtures['fixtures']
+    historical_data.sort(key=lambda x: x['kickoff']['timestamp'])
     
-    for fixture in fixtures:
-        timestamp = fixture['kickoff']['timestamp']
-        home_team_id = fixture['home_team']['id']
-        away_team_id = fixture['away_team']['id']
+    # Determine which fixtures to process
+    fixtures_to_process = historical_data if is_training else future_fixtures
+    
+    for fixture in fixtures_to_process:
+        # Get team IDs and timestamp (handle different formats for historical vs future)
+        if is_training:
+            home_team_id = fixture['home_team']['id']
+            away_team_id = fixture['away_team']['id']
+            timestamp = fixture['kickoff']['timestamp']
+        else:
+            home_team_id = fixture['home_team']['id']
+            away_team_id = fixture['away_team']['id']
+            timestamp = fixture['kickoff']['timestamp']
         
-        home_form = extract_team_recent_form(fixtures, home_team_id, timestamp)
-        away_form = extract_team_recent_form(fixtures, away_team_id, timestamp)
+        # Get recent matches for both teams before this fixture
+        home_form = extract_team_recent_form(historical_data, home_team_id, timestamp)
+        away_form = extract_team_recent_form(historical_data, away_team_id, timestamp)
         
-        # Get H2H features for this fixture
+        # Get H2H features
         h2h_features = get_h2h_features(fixture['home_team']['name'], fixture['away_team']['name'])
         
         row = {
-            # Team names (will be ignored in training)
+            # Fixture information
+            'fixture_id': fixture['fixture_id'],
             'home_team': fixture['home_team']['name'],
             'away_team': fixture['away_team']['name'],
-            'fixture_id': fixture['fixture_id'],
             
             # Home team features
             'home_matches_played': home_form['matches_played'],
@@ -240,24 +259,43 @@ def prepare_training_data(fixtures):
             'away_momentum': away_form['momentum'],
             
             # H2H features
-            **h2h_features,  # Unpack H2H features here
-            
-            # Labels
-            'home_goals': fixture['home_team']['score'],
-            'away_goals': fixture['away_team']['score']
+            **h2h_features
         }
+        
+        # Add actual results for training data
+        if is_training:
+            row.update({
+                'home_goals': fixture['home_team']['score'],
+                'away_goals': fixture['away_team']['score']
+            })
+            
         data.append(row)
     
     return pd.DataFrame(data)
 
 if __name__ == "__main__":
-    # Load fixtures data
-    with open('premier_league_fixtures.json', 'r') as f:
-        fixtures = json.load(f)['fixtures']
+    import argparse
     
-    # Prepare training data with all features
-    df = prepare_training_data(fixtures)
+    parser = argparse.ArgumentParser(description='Prepare training or test data')
+    parser.add_argument('--mode', choices=['train', 'test'], default='train',
+                      help='Whether to prepare training or test data')
+    args = parser.parse_args()
+    
+    # Load historical fixtures
+    with open('premier_league_fixtures.json', 'r') as f:
+        historical_fixtures = json.load(f)
+    
+    if args.mode == 'train':
+        # Prepare training data
+        df = prepare_training_data(historical_fixtures, is_training=True)
+        output_file = 'data/training_data.csv'
+    else:
+        # Load future fixtures and prepare test data
+        with open('future_fixtures.json', 'r') as f:
+            future_fixtures = json.load(f)
+        df = prepare_training_data(historical_fixtures, future_fixtures, is_training=False)
+        output_file = 'data/test_data.csv'
     
     # Save to CSV
-    df.to_csv('training_data.csv', index=False)
-    print("Training data prepared and saved to training_data.csv")
+    df.to_csv(output_file, index=False)
+    print(f"Data prepared and saved to {output_file}")
