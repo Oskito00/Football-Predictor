@@ -1,4 +1,5 @@
 import json
+import os
 import requests
 from config.config import headers
 
@@ -47,12 +48,17 @@ def process_match_stats(stats_data, home_team_id):
 
 #Helper function to get fixtures
 #--------------------------------
-def get_scores_data(page=0):
-    url = f'https://footballapi.pulselive.com/football/fixtures'
+def get_scores_data(year, page=0):
+    with open('scripts/data_scraping/request_params.json', 'r') as f:
+        params_data = json.load(f)
+    
+    if year not in params_data:
+        raise ValueError(f"No request parameters found for year {year}")
+    
     params = {
         'comps': 1,
-        'compSeasons': 719,
-        'teams': '1,2,127,130,131,4,6,7,34,8,26,10,11,12,23,15,20,21,25,38',
+        'compSeasons': params_data[year]['compSeasons'],
+        'teams': params_data[year]['teams'],
         'page': page,
         'pageSize': 100,
         'sort': 'desc',
@@ -60,15 +66,17 @@ def get_scores_data(page=0):
         'altIds': True,
         'fast': False
     }
+    
+    url = 'https://footballapi.pulselive.com/football/fixtures'
     response = requests.get(url, headers=headers, params=params)
     return response.json()
 
-def process_fixtures_data():
+def process_fixtures_data(year):
     all_fixtures = []
     page = 0
     
     while True:
-        response = get_scores_data(page)
+        response = get_scores_data(year, page)
         if not response['content']:  # If no more fixtures
             break
             
@@ -139,16 +147,24 @@ def process_fixtures_data():
     
     # Sort fixtures by gameweek
     all_fixtures.sort(key=lambda x: x['gameweek'])
+
+    # Ensure the directory exists
+    output_dir = f'data/{year}'
+    os.makedirs(output_dir, exist_ok=True)
     
     # Save to JSON file
-    with open('premier_league_fixtures.json', 'w') as f:
+    output_filename = f'data/{year}/premier_league_results.json'
+    with open(output_filename, 'w') as f:
         json.dump({'fixtures': all_fixtures}, f, indent=4)
     
     return all_fixtures
 
 if __name__ == "__main__":
-    fixtures = process_fixtures_data()
-    print(f"Processed {len(fixtures)} fixtures and saved to premier_league_fixtures.json")
+    years = ['2024']  # Change this to the desired year
+
+    for year in years:
+        fixtures = process_fixtures_data(year)
+        print(f"Processed {len(fixtures)} fixtures and saved to {year}_premier_league_fixtures.json")
 
     
 

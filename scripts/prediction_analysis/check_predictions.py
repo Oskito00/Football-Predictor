@@ -72,9 +72,8 @@ def evaluate_predictions(fixtures, predictions):
     return correct_results, correct_scores, correct_over_under, total_evaluated
 
 if __name__ == "__main__":
-    fixtures_file = 'premier_league_fixtures.json'
-    predictions_file = 'predictions.json'
-
+    fixtures_file = 'data/2024/premier_league_results.json'
+    predictions_file = 'predictions/predictions_20241204_170852.json'
     fixtures = load_fixtures(fixtures_file)
     predictions = load_predictions(predictions_file)
 

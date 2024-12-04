@@ -4,7 +4,7 @@ import json
 
 def load_team_ids():
     """Load team IDs from JSON file"""
-    with open('team_data/team_ids.json', 'r') as f:
+    with open('data/2024/team_ids.json', 'r') as f:
         return json.load(f)
 
 def get_scores_data(page=0):
