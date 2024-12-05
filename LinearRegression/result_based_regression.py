@@ -156,24 +156,6 @@ def main():
     best_alpha = 5.0
     percentile = 50
     
-    print(f"\nUsing {percentile}th percentile for feature selection")
-    model = ResultBasedRidge(alpha=best_alpha)
-    
-    # First, get feature importance from full dataset
-    scaler = StandardScaler()
-    X_scaled = scaler.fit_transform(X)
-    model.fit(X_scaled, y)
-    feature_importance = model.feature_importance()
-    
-    # Select important features
-    important_indices, important_features = select_important_features(X, feature_importance, percentile)
-    print(f"\nNumber of features selected: {len(important_features)}")
-    print("\nSelected Important Features:")
-    for idx, feature in enumerate(important_features):
-        importance_score = np.mean(np.abs(feature_importance[:, important_indices[idx]]))
-        print(f"{feature}: {importance_score:.4f}")
-    
-    # Now perform cross-validation using only important features
     print("\nTraining with selected features...")
     all_train_accuracies = []
     all_test_accuracies = []
@@ -187,6 +169,21 @@ def main():
         scaler = StandardScaler()
         X_train_scaled = scaler.fit_transform(X_train)
         X_test_scaled = scaler.transform(X_test)
+        
+        # Get feature importance from training data only
+        model = ResultBasedRidge(alpha=best_alpha)
+        model.fit(X_train_scaled, y_train)
+        feature_importance = model.feature_importance()
+        
+        # Select important features using only training data
+        important_indices, important_features = select_important_features(X_train, feature_importance, percentile)
+        
+        if fold == 1:
+            print(f"\nNumber of features selected: {len(important_features)}")
+            print("\nSelected Important Features (from first fold):")
+            for idx, feature in enumerate(important_features):
+                importance_score = np.mean(np.abs(feature_importance[:, important_indices[idx]]))
+                print(f"{feature}: {importance_score:.4f}")
         
         # Use only important features
         X_train_important = X_train_scaled[:, important_indices]
@@ -217,7 +214,7 @@ def main():
     print("\nFinal Results:")
     print(f"Average Train Accuracy: {np.mean(all_train_accuracies):.3f} ± {np.std(all_train_accuracies):.3f}")
     print(f"Average Test Accuracy: {np.mean(all_test_accuracies):.3f} ± {np.std(all_test_accuracies):.3f}")
-    print(f"\nFinal model trained with alpha = {best_alpha} using {len(important_features)} important features")
+    print(f"\nFinal model trained with alpha = {best_alpha}")
 
 def predict_future_fixtures():
     """Predict future fixtures using the trained model."""
@@ -238,16 +235,16 @@ def predict_future_fixtures():
     best_alpha = 5.0
     percentile = 50
     
-    print(f"\nUsing {percentile}th percentile for feature selection")
-    model = ResultBasedRidge(alpha=best_alpha)
-    
-    # First, get feature importance from full dataset
+    # Train final model on all data
+    print("\nTraining final model on all data...")
     scaler = StandardScaler()
     X_scaled = scaler.fit_transform(X)
+    
+    model = ResultBasedRidge(alpha=best_alpha)
     model.fit(X_scaled, y)
     feature_importance = model.feature_importance()
     
-    # Select important features
+    # Select important features using all training data
     important_indices, important_features = select_important_features(X, feature_importance, percentile)
     print(f"\nNumber of features selected: {len(important_features)}")
     print("\nSelected Important Features:")
@@ -255,15 +252,9 @@ def predict_future_fixtures():
         importance_score = np.mean(np.abs(feature_importance[:, important_indices[idx]]))
         print(f"{feature}: {importance_score:.4f}")
     
-    # Train final model using only important features
-    print("\nTraining final model with selected features...")
-    X_important = X_scaled[:, important_indices]
-    model = ResultBasedRidge(alpha=best_alpha)
-    model.fit(X_important, y)
-    
     # Load and prepare future fixtures
     print("\nLoading future fixtures...")
-    future_data = pd.read_csv('LinearRegression/data/2024/future_fixtures_prepared.csv')
+    future_data = pd.read_csv('LinearRegression/data/2024/future_fixture_data.csv')
     X_future = future_data[feature_cols]
     
     # Scale future features and select important ones
