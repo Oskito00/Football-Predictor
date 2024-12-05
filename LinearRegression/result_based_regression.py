@@ -109,12 +109,16 @@ def save_fold_predictions(predictions, actual_values, fixture_data, fold_number,
     
     print(f"\nFold {fold_number} {'Test' if is_test else 'Train'} predictions saved to {filename}")
 
-def select_important_features(X, feature_importance, threshold_percentile=75):
+def select_important_features(X, feature_importance, threshold_percentile):
     """
     Select features based on their importance scores.
     Always include H2H features.
     Returns the selected feature indices and their names.
     """
+    # If percentile is 0, use all features
+    if threshold_percentile == 0:
+        return np.arange(X.shape[1]), X.columns.tolist()
+    
     # Get the average importance across both home and away predictions
     avg_importance = np.mean(np.abs(feature_importance), axis=0)
     
@@ -148,8 +152,11 @@ def main():
     # Initialize k-fold cross-validation
     kf = KFold(n_splits=5, shuffle=True, random_state=42)
     
-    # Use the best alpha value
+    # Use the best alpha value and percentile
     best_alpha = 5.0
+    percentile = 50
+    
+    print(f"\nUsing {percentile}th percentile for feature selection")
     model = ResultBasedRidge(alpha=best_alpha)
     
     # First, get feature importance from full dataset
@@ -159,7 +166,8 @@ def main():
     feature_importance = model.feature_importance()
     
     # Select important features
-    important_indices, important_features = select_important_features(X, feature_importance)
+    important_indices, important_features = select_important_features(X, feature_importance, percentile)
+    print(f"\nNumber of features selected: {len(important_features)}")
     print("\nSelected Important Features:")
     for idx, feature in enumerate(important_features):
         importance_score = np.mean(np.abs(feature_importance[:, important_indices[idx]]))
@@ -174,9 +182,6 @@ def main():
         X_train, X_test = X.iloc[train_idx], X.iloc[test_idx]
         y_train, y_test = y.iloc[train_idx], y.iloc[test_idx]
         data_test = data.iloc[test_idx]
-        
-        print(f"\nFold {fold}")
-        print(f"Training set size: {len(X_train)}, Test set size: {len(X_test)}")
         
         # Scale features
         scaler = StandardScaler()
@@ -206,22 +211,95 @@ def main():
         all_train_accuracies.append(train_accuracy)
         all_test_accuracies.append(test_accuracy)
         
-        print(f"Train Accuracy: {train_accuracy:.3f}, Test Accuracy: {test_accuracy:.3f}")
-        
-        # Print actual vs predicted for test set
-        print("\nTest Set Predictions (first 5):")
-        for i in range(min(5, len(test_predictions))):
-            true_result = 'D' if y_test.iloc[i]['home_goals'] == y_test.iloc[i]['away_goals'] else \
-                         ('H' if y_test.iloc[i]['home_goals'] > y_test.iloc[i]['away_goals'] else 'A')
-            pred_result = 'D' if round(test_predictions[i][0]) == round(test_predictions[i][1]) else \
-                         ('H' if round(test_predictions[i][0]) > round(test_predictions[i][1]) else 'A')
-            print(f"True: {true_result} ({y_test.iloc[i]['home_goals']}-{y_test.iloc[i]['away_goals']}), "
-                  f"Predicted: {pred_result} ({round(test_predictions[i][0])}-{round(test_predictions[i][1])})")
+        print(f"Fold {fold} - Train Accuracy: {train_accuracy:.3f}, Test Accuracy: {test_accuracy:.3f}")
     
-    print("\nOverall Statistics:")
+    # Print final summary
+    print("\nFinal Results:")
     print(f"Average Train Accuracy: {np.mean(all_train_accuracies):.3f} ± {np.std(all_train_accuracies):.3f}")
     print(f"Average Test Accuracy: {np.mean(all_test_accuracies):.3f} ± {np.std(all_test_accuracies):.3f}")
     print(f"\nFinal model trained with alpha = {best_alpha} using {len(important_features)} important features")
 
+def predict_future_fixtures():
+    """Predict future fixtures using the trained model."""
+    print("\nPredicting future fixtures...")
+    
+    # Load training data
+    print("Loading training data...")
+    data = pd.read_csv('LinearRegression/data/2024/training_data.csv')
+    
+    # Prepare features (X) and targets (y)
+    feature_cols = [col for col in data.columns 
+                   if col not in ['fixture_id', 'home_team', 'away_team', 
+                                'home_goals', 'away_goals']]
+    X = data[feature_cols]
+    y = data[['home_goals', 'away_goals']]
+    
+    # Use the best alpha value and percentile
+    best_alpha = 5.0
+    percentile = 50
+    
+    print(f"\nUsing {percentile}th percentile for feature selection")
+    model = ResultBasedRidge(alpha=best_alpha)
+    
+    # First, get feature importance from full dataset
+    scaler = StandardScaler()
+    X_scaled = scaler.fit_transform(X)
+    model.fit(X_scaled, y)
+    feature_importance = model.feature_importance()
+    
+    # Select important features
+    important_indices, important_features = select_important_features(X, feature_importance, percentile)
+    print(f"\nNumber of features selected: {len(important_features)}")
+    print("\nSelected Important Features:")
+    for idx, feature in enumerate(important_features):
+        importance_score = np.mean(np.abs(feature_importance[:, important_indices[idx]]))
+        print(f"{feature}: {importance_score:.4f}")
+    
+    # Train final model using only important features
+    print("\nTraining final model with selected features...")
+    X_important = X_scaled[:, important_indices]
+    model = ResultBasedRidge(alpha=best_alpha)
+    model.fit(X_important, y)
+    
+    # Load and prepare future fixtures
+    print("\nLoading future fixtures...")
+    future_data = pd.read_csv('LinearRegression/data/2024/future_fixtures_prepared.csv')
+    X_future = future_data[feature_cols]
+    
+    # Scale future features and select important ones
+    X_future_scaled = scaler.transform(X_future)
+    X_future_important = X_future_scaled[:, important_indices]
+    
+    # Make predictions
+    print("\nMaking predictions...")
+    predictions = model.predict(X_future_important)
+    
+    # Save predictions
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    filename = f'predictions/future_predictions_{timestamp}.json'
+    
+    predictions_list = []
+    for i in range(len(predictions)):
+        prediction = {
+            'fixture': {
+                'home_team': future_data.iloc[i]['home_team'],
+                'away_team': future_data.iloc[i]['away_team'],
+                'fixture_id': future_data.iloc[i]['fixture_id']
+            },
+            'predictions': {
+                'home_goals': float(predictions[i][0]),
+                'away_goals': float(predictions[i][1])
+            }
+        }
+        predictions_list.append(prediction)
+    
+    os.makedirs('predictions', exist_ok=True)
+    with open(filename, 'w') as f:
+        json.dump({'predictions': predictions_list}, f, indent=4)
+    
+    print(f"\nFuture predictions saved to {filename}")
+    print(f"Final model trained with alpha = {best_alpha} using {len(important_features)} important features")
+
 if __name__ == "__main__":
     main()
+    # predict_future_fixtures()

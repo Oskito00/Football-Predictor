@@ -264,7 +264,7 @@ def extract_team_recent_form(fixtures, team_id, before_timestamp, max_matches=5)
     }
 
 def get_h2h_features(home_team_name, away_team_name, year):
-    """Retrieve simplified head-to-head statistics for a given fixture"""
+    """Retrieve normalized head-to-head statistics for a given fixture"""
     
     # Load H2H stats for the specific year
     try:
@@ -303,17 +303,30 @@ def get_h2h_features(home_team_name, away_team_name, year):
             'h2h_away_clean_sheets': 0
         }
     
-    # Calculate points from wins and draws
-    home_points = (home_team_data['wins'] * 3) + home_team_data['draws']
-    away_points = (away_team_data['wins'] * 3) + away_team_data['draws']
+    # Calculate total matches for each team
+    home_matches = home_team_data['wins'] + home_team_data['draws'] + home_team_data['losses']
+    away_matches = away_team_data['wins'] + away_team_data['draws'] + away_team_data['losses']
+    
+    # Calculate normalized statistics
+    # Points: total points / maximum possible points (3 * number of matches)
+    home_points_normalized = ((home_team_data['wins'] * 3) + home_team_data['draws']) / (home_matches * 3) if home_matches > 0 else 0
+    away_points_normalized = ((away_team_data['wins'] * 3) + away_team_data['draws']) / (away_matches * 3) if away_matches > 0 else 0
+    
+    # Goals: average goals per game
+    home_goals_normalized = home_team_data['goals'] / home_matches if home_matches > 0 else 0
+    away_goals_normalized = away_team_data['goals'] / away_matches if away_matches > 0 else 0
+    
+    # Clean sheets: proportion of games with clean sheets
+    home_clean_sheets_normalized = home_team_data['clean_sheets'] / home_matches if home_matches > 0 else 0
+    away_clean_sheets_normalized = away_team_data['clean_sheets'] / away_matches if away_matches > 0 else 0
     
     return {
-        'h2h_home_points': home_points,
-        'h2h_home_goals': home_team_data['goals'],
-        'h2h_home_clean_sheets': home_team_data['clean_sheets'],
-        'h2h_away_points': away_points,
-        'h2h_away_goals': away_team_data['goals'],
-        'h2h_away_clean_sheets': away_team_data['clean_sheets']
+        'h2h_home_points': home_points_normalized,
+        'h2h_home_goals': home_goals_normalized,
+        'h2h_home_clean_sheets': home_clean_sheets_normalized,
+        'h2h_away_points': away_points_normalized,
+        'h2h_away_goals': away_goals_normalized,
+        'h2h_away_clean_sheets': away_clean_sheets_normalized
     }
 
 def prepare_training_data(year, future_fixtures=None, is_training=True):
@@ -425,7 +438,7 @@ def prepare_training_data(year, future_fixtures=None, is_training=True):
     print(f"Debug: Successfully processed {len(data)} fixtures")
     return pd.DataFrame(data)
 
-def process_all_years(start_year=2014, end_year=2024):
+def process_all_years(start_year=2024, end_year=2024):
     """Process data for multiple years, from start_year to end_year inclusive"""
     for year in range(start_year, end_year + 1):  # Changed from end_year-1 to end_year + 1
         try:
@@ -462,12 +475,12 @@ def process_future_fixtures():
     future_data = prepare_training_data(year=2024, future_fixtures=future_fixtures, is_training=False)
     
     # Save to CSV
-    future_data_csv = 'data/2024/future_fixtures_prepared.csv'
+    future_data_csv = 'LinearRegression/data/2024/future_fixtures_prepared.csv'
     future_data.to_csv(future_data_csv, index=False)
     print(f"Future fixtures data saved to {future_data_csv}")
 
 
 
 if __name__ == "__main__":
-    process_all_years()
+    process_future_fixtures()
     
