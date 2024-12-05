@@ -11,15 +11,107 @@ def load_future_fixtures(json_file):
 
 def calculate_team_stats(match_stats):
     """Extract key statistics from a team's match data"""
-    return {
-        'possession': match_stats.get('possession_percentage', 0),
-        'shots_on_target': match_stats.get('ontarget_scoring_att', 0),
-        'passes_accurate': match_stats.get('accurate_pass', 0),
-        'passes': match_stats.get('total_pass', 0),
-        'big_chances_created': match_stats.get('big_chance_created', 0),
-        'tackles': match_stats.get('total_tackle', 0),
-        'saves': match_stats.get('saves', 0)
+
+    # === Possession and Passing Performance ===
+    possession_percentage = match_stats.get('possession_percentage', 0)
+
+    total_passes = match_stats.get('total_pass', 0)
+    accurate_passes = match_stats.get('accurate_pass', 0)
+    pass_accuracy = (accurate_passes / total_passes * 100) if total_passes else 0
+
+    total_final_third_passes = match_stats.get('total_final_third_passes', 0)
+    successful_final_third_passes = match_stats.get('successful_final_third_passes', 0)
+    final_third_pass_accuracy = (successful_final_third_passes / total_final_third_passes * 100) if total_final_third_passes else 0
+
+    total_long_balls = match_stats.get('total_long_balls', 0)
+    accurate_long_balls = match_stats.get('accurate_long_balls', 0)
+    long_ball_accuracy = (accurate_long_balls / total_long_balls * 100) if total_long_balls else 0
+
+    total_crosses = match_stats.get('total_cross', 0)
+    accurate_crosses = match_stats.get('accurate_cross', 0)
+    cross_accuracy = (accurate_crosses / total_crosses * 100) if total_crosses else 0
+
+    # === Combine Passing Metrics into 'pass_effectiveness' ===
+    # Weighting final third pass accuracy higher because it's more important
+    pass_accuracy_weight = 1
+    final_third_pass_accuracy_weight = 2  # Higher weight
+    long_ball_accuracy_weight = 1
+    cross_accuracy_weight = 1
+
+    total_pass_weights = (pass_accuracy_weight +
+                          final_third_pass_accuracy_weight +
+                          long_ball_accuracy_weight +
+                          cross_accuracy_weight)
+
+    pass_effectiveness = (
+        (pass_accuracy * pass_accuracy_weight) +
+        (final_third_pass_accuracy * final_third_pass_accuracy_weight) +
+        (long_ball_accuracy * long_ball_accuracy_weight) +
+        (cross_accuracy * cross_accuracy_weight)
+    ) / total_pass_weights
+
+    # === Attacking Performance ===
+    goals_scored = match_stats.get('goals', 0)
+    total_scoring_att = match_stats.get('total_scoring_att', 0)
+    shots_on_target = match_stats.get('ontarget_scoring_att', 0)
+    shot_accuracy = (shots_on_target / total_scoring_att * 100) if total_scoring_att else 0
+    conversion_rate = (goals_scored / total_scoring_att * 100) if total_scoring_att else 0
+
+    big_chance_scored = match_stats.get('big_chance_scored', 0)
+    big_chance_missed = match_stats.get('big_chance_missed', 0)
+    total_big_chances = big_chance_scored + big_chance_missed
+    big_chance_conversion = (big_chance_scored / total_big_chances * 100) if total_big_chances else 0
+
+    # === Defensive Performance ===
+    goals_conceded = match_stats.get('goals_conceded', 0)
+    goals_conceded_inside_box = match_stats.get('goals_conceded_ibox', 0)
+    goals_conceded_outside_box = goals_conceded - goals_conceded_inside_box
+
+    total_tackles = match_stats.get('total_tackle', 0)
+    won_tackles = match_stats.get('won_tackle', 0)
+    tackle_success_rate = (won_tackles / total_tackles * 100) if total_tackles else 0
+
+    duel_won = match_stats.get('duel_won', 0)
+    duel_lost = match_stats.get('duel_lost', 0)
+    total_duels = duel_won + duel_lost
+    duel_success_rate = (duel_won / total_duels * 100) if total_duels else 0
+
+    aerial_won = match_stats.get('aerial_won', 0)
+    aerial_lost = match_stats.get('aerial_lost', 0)
+    total_aerials = aerial_won + aerial_lost
+    aerial_success_rate = (aerial_won / total_aerials * 100) if total_aerials else 0
+
+    # === Combine Defensive Metrics into 'defensive_success_rate' ===
+    defensive_success_rate = (
+        tackle_success_rate +
+        duel_success_rate +
+        aerial_success_rate
+    ) / 3  # Equal weighting
+
+    # === Keeper Performance ===
+    saves_made = match_stats.get('saves', 0)
+    shots_on_target_faced = saves_made + goals_conceded
+    save_percentage = (saves_made / shots_on_target_faced * 100) if shots_on_target_faced else 0
+
+    # === Assemble Metrics ===
+    team_stats = {
+        # Possession and Passing Performance
+        'possession_percentage': possession_percentage,
+        'pass_effectiveness': round(pass_effectiveness, 2),
+
+        # Attacking Performance
+        'shot_accuracy': round(shot_accuracy, 2),
+        'conversion_rate': round(conversion_rate, 2),
+        'big_chance_conversion_rate': round(big_chance_conversion, 2),
+
+        # Defensive Performance
+        'defensive_success_rate': round(defensive_success_rate, 2),
+
+        # Keeper Performance
+        'save_percentage': round(save_percentage, 2),
     }
+
+    return team_stats
 
 def calculate_momentum(matches, team_id):
     """
@@ -76,8 +168,6 @@ def extract_team_recent_form(fixtures, team_id, before_timestamp, max_matches=5)
     ]
     
     print(f"Debug: Found {len(previous_matches)} previous matches for team")
-    if previous_matches:
-        print(f"Debug: First match stats structure: {previous_matches[0].get('stats', {}).keys()}")
     
     previous_matches.sort(key=lambda x: x['kickoff']['timestamp'], reverse=True)
     recent_matches = previous_matches[:max_matches]
@@ -91,28 +181,27 @@ def extract_team_recent_form(fixtures, team_id, before_timestamp, max_matches=5)
         print("Debug: No recent matches found, returning default values")
         return {
             'matches_played': 0,
-            'points': 0,
             'goals_scored': 0,
             'goals_conceded': 0,
-            'avg_possession': 0,
-            'avg_shots_on_target': 0,
-            'avg_pass_accuracy': 0,
-            'avg_big_chances': 0,
-            'avg_tackles': 0,
-            'avg_saves': 0,
+            'possession_percentage': 0,
+            'pass_effectiveness': 0,
+            'shot_accuracy': 0,
+            'conversion_rate': 0,
+            'big_chance_conversion_rate': 0,
+            'defensive_success_rate': 0,
+            'save_percentage': 0,
             'momentum': momentum
         }
     
-    # Rest of the function remains the same
-    total_points = 0
     total_goals_scored = 0
     total_goals_conceded = 0
     total_possession = 0
-    total_shots_on_target = 0
-    total_pass_accuracy = 0
-    total_big_chances = 0
-    total_tackles = 0
-    total_saves = 0
+    total_pass_effectiveness = 0
+    total_shot_accuracy = 0
+    total_conversion_rate = 0
+    total_big_chance_conversion = 0
+    total_defensive_success = 0
+    total_save_percentage = 0
     matches_with_stats = 0
     
     for match in recent_matches:
@@ -135,11 +224,6 @@ def extract_team_recent_form(fixtures, team_id, before_timestamp, max_matches=5)
             print(f"Debug: No {'home' if is_home else 'away'} stats found, skipping")
             continue
             
-        opponent_stats = match_stats.get('away' if is_home else 'home')
-        if not opponent_stats:
-            print("Debug: No opponent stats found, skipping")
-            continue
-        
         # Basic match results
         team_score = match['home_team']['score'] if is_home else match['away_team']['score']
         opponent_score = match['away_team']['score'] if is_home else match['home_team']['score']
@@ -147,21 +231,18 @@ def extract_team_recent_form(fixtures, team_id, before_timestamp, max_matches=5)
         total_goals_scored += team_score
         total_goals_conceded += opponent_score
         
-        if team_score > opponent_score:
-            total_points += 3
-        elif team_score == opponent_score:
-            total_points += 1
+        # Calculate and aggregate advanced stats
+        calculated_stats = calculate_team_stats(team_stats)
+        print(f"Debug: Calculated stats: {calculated_stats}")
         
-        if opponent_score == 0:
-            calculated_stats = calculate_team_stats(team_stats)
-            print(f"Debug: Calculated stats: {calculated_stats}")
-            total_possession += calculated_stats['possession']
-            total_shots_on_target += calculated_stats['shots_on_target']
-            total_pass_accuracy += (calculated_stats['passes_accurate'] / calculated_stats['passes'] * 100) if calculated_stats['passes'] > 0 else 0
-            total_big_chances += calculated_stats['big_chances_created']
-            total_tackles += calculated_stats['tackles']
-            total_saves += calculated_stats['saves']
-            matches_with_stats += 1
+        total_possession += calculated_stats['possession_percentage']
+        total_pass_effectiveness += calculated_stats['pass_effectiveness']
+        total_shot_accuracy += calculated_stats['shot_accuracy']
+        total_conversion_rate += calculated_stats['conversion_rate']
+        total_big_chance_conversion += calculated_stats['big_chance_conversion_rate']
+        total_defensive_success += calculated_stats['defensive_success_rate']
+        total_save_percentage += calculated_stats['save_percentage']
+        matches_with_stats += 1
     
     matches_played = len(recent_matches)
     print(f"Debug: Processed {matches_played} matches successfully")
@@ -170,20 +251,20 @@ def extract_team_recent_form(fixtures, team_id, before_timestamp, max_matches=5)
     divisor = max(1, matches_with_stats)  # Avoid division by zero
     return {
         'matches_played': matches_played,
-        'points': total_points,
         'goals_scored': total_goals_scored,
         'goals_conceded': total_goals_conceded,
-        'avg_possession': total_possession / divisor,
-        'avg_shots_on_target': total_shots_on_target / divisor,
-        'avg_pass_accuracy': total_pass_accuracy / divisor,
-        'avg_big_chances': total_big_chances / divisor,
-        'avg_tackles': total_tackles / divisor,
-        'avg_saves': total_saves / divisor,
+        'possession_percentage': total_possession / divisor,
+        'pass_effectiveness': total_pass_effectiveness / divisor,
+        'shot_accuracy': total_shot_accuracy / divisor,
+        'conversion_rate': total_conversion_rate / divisor,
+        'big_chance_conversion_rate': total_big_chance_conversion / divisor,
+        'defensive_success_rate': total_defensive_success / divisor,
+        'save_percentage': total_save_percentage / divisor,
         'momentum': momentum
     }
 
 def get_h2h_features(home_team_name, away_team_name, year):
-    """Retrieve head-to-head statistics for a given fixture"""
+    """Retrieve simplified head-to-head statistics for a given fixture"""
     
     # Load H2H stats for the specific year
     try:
@@ -192,53 +273,48 @@ def get_h2h_features(home_team_name, away_team_name, year):
     except FileNotFoundError:
         print(f"H2H stats file not found for year {year}")
         return {
-            'h2h_home_wins': 0,
-            'h2h_home_draws': 0,
-            'h2h_home_losses': 0,
+            'h2h_home_points': 0,
             'h2h_home_goals': 0,
             'h2h_home_clean_sheets': 0,
-            'h2h_away_wins': 0,
-            'h2h_away_draws': 0,
-            'h2h_away_losses': 0,
+            'h2h_away_points': 0,
             'h2h_away_goals': 0,
             'h2h_away_clean_sheets': 0
         }
     
     # Try both combinations of team names
     h2h_key = f"{home_team_name}_vs_{away_team_name}"
-    if h2h_key not in h2h_stats:
-        h2h_key = f"{away_team_name}_vs_{home_team_name}"
+    reverse_key = f"{away_team_name}_vs_{home_team_name}"
     
     if h2h_key in h2h_stats:
         h2h_data = h2h_stats[h2h_key]
-        
-        # Return H2H stats for both teams
-        return {
-            'h2h_home_wins': h2h_data[home_team_name]['wins'],
-            'h2h_home_draws': h2h_data[home_team_name]['draws'],
-            'h2h_home_losses': h2h_data[home_team_name]['losses'],
-            'h2h_home_goals': h2h_data[home_team_name]['goals'],
-            'h2h_home_clean_sheets': h2h_data[home_team_name]['clean_sheets'],
-            'h2h_away_wins': h2h_data[away_team_name]['wins'],
-            'h2h_away_draws': h2h_data[away_team_name]['draws'],
-            'h2h_away_losses': h2h_data[away_team_name]['losses'],
-            'h2h_away_goals': h2h_data[away_team_name]['goals'],
-            'h2h_away_clean_sheets': h2h_data[away_team_name]['clean_sheets']
-        }
+        home_team_data = h2h_data[home_team_name]
+        away_team_data = h2h_data[away_team_name]
+    elif reverse_key in h2h_stats:
+        h2h_data = h2h_stats[reverse_key]
+        home_team_data = h2h_data[home_team_name]
+        away_team_data = h2h_data[away_team_name]
     else:
-        # Return zeros if no H2H data is found
         return {
-            'h2h_home_wins': 0,
-            'h2h_home_draws': 0,
-            'h2h_home_losses': 0,
+            'h2h_home_points': 0,
             'h2h_home_goals': 0,
             'h2h_home_clean_sheets': 0,
-            'h2h_away_wins': 0,
-            'h2h_away_draws': 0,
-            'h2h_away_losses': 0,
+            'h2h_away_points': 0,
             'h2h_away_goals': 0,
             'h2h_away_clean_sheets': 0
         }
+    
+    # Calculate points from wins and draws
+    home_points = (home_team_data['wins'] * 3) + home_team_data['draws']
+    away_points = (away_team_data['wins'] * 3) + away_team_data['draws']
+    
+    return {
+        'h2h_home_points': home_points,
+        'h2h_home_goals': home_team_data['goals'],
+        'h2h_home_clean_sheets': home_team_data['clean_sheets'],
+        'h2h_away_points': away_points,
+        'h2h_away_goals': away_team_data['goals'],
+        'h2h_away_clean_sheets': away_team_data['clean_sheets']
+    }
 
 def prepare_training_data(year, future_fixtures=None, is_training=True):
     """
@@ -306,24 +382,26 @@ def prepare_training_data(year, future_fixtures=None, is_training=True):
                 'home_matches_played': home_form['matches_played'],
                 'home_goals_scored': home_form['goals_scored'],
                 'home_goals_conceded': home_form['goals_conceded'],
-                'home_avg_possession': home_form['avg_possession'],
-                'home_avg_shots_on_target': home_form['avg_shots_on_target'],
-                'home_avg_pass_accuracy': home_form['avg_pass_accuracy'],
-                'home_avg_big_chances': home_form['avg_big_chances'],
-                'home_avg_tackles': home_form['avg_tackles'],
-                'home_avg_saves': home_form['avg_saves'],
+                'home_possession': home_form['possession_percentage'],
+                'home_pass_effectiveness': home_form['pass_effectiveness'],
+                'home_shot_accuracy': home_form['shot_accuracy'],
+                'home_conversion_rate': home_form['conversion_rate'],
+                'home_big_chance_conversion': home_form['big_chance_conversion_rate'],
+                'home_defensive_success': home_form['defensive_success_rate'],
+                'home_save_percentage': home_form['save_percentage'],
                 'home_momentum': home_form['momentum'],
                 
                 # Away team features
                 'away_matches_played': away_form['matches_played'],
                 'away_goals_scored': away_form['goals_scored'],
                 'away_goals_conceded': away_form['goals_conceded'],
-                'away_avg_possession': away_form['avg_possession'],
-                'away_avg_shots_on_target': away_form['avg_shots_on_target'],
-                'away_avg_pass_accuracy': away_form['avg_pass_accuracy'],
-                'away_avg_big_chances': away_form['avg_big_chances'],
-                'away_avg_tackles': away_form['avg_tackles'],
-                'away_avg_saves': away_form['avg_saves'],
+                'away_possession': away_form['possession_percentage'],
+                'away_pass_effectiveness': away_form['pass_effectiveness'],
+                'away_shot_accuracy': away_form['shot_accuracy'],
+                'away_conversion_rate': away_form['conversion_rate'],
+                'away_big_chance_conversion': away_form['big_chance_conversion_rate'],
+                'away_defensive_success': away_form['defensive_success_rate'],
+                'away_save_percentage': away_form['save_percentage'],
                 'away_momentum': away_form['momentum'],
                 
                 # H2H features
@@ -347,8 +425,9 @@ def prepare_training_data(year, future_fixtures=None, is_training=True):
     print(f"Debug: Successfully processed {len(data)} fixtures")
     return pd.DataFrame(data)
 
-def process_all_years(start_year=2019, end_year=2019):
-    for year in range(start_year, end_year-1, -1):
+def process_all_years(start_year=2014, end_year=2024):
+    """Process data for multiple years, from start_year to end_year inclusive"""
+    for year in range(start_year, end_year + 1):  # Changed from end_year-1 to end_year + 1
         try:
             year_str = str(year)
             print(f"Processing year {year_str}...")
@@ -390,5 +469,5 @@ def process_future_fixtures():
 
 
 if __name__ == "__main__":
-    # process_all_years()
-    process_future_fixtures()
+    process_all_years()
+    
