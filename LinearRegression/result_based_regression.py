@@ -47,10 +47,10 @@ class ResultBasedRidge(Ridge):
         
         for _ in range(n_iterations):
             y_pred = self.predict(X)
-            accuracy = custom_result_loss(y, y_pred)
             
-            # Calculate gradients and update coefficients
-            grad = np.zeros_like(self.coef_)
+            # Calculate gradients for both home and away goals separately
+            grad_home = np.zeros_like(self.coef_[0])
+            grad_away = np.zeros_like(self.coef_[1])
             
             for i in range(len(X)):
                 true_home = y.iloc[i]['home_goals']
@@ -61,12 +61,16 @@ class ResultBasedRidge(Ridge):
                 true_result = 'D' if true_home == true_away else ('H' if true_home > true_away else 'A')
                 pred_result = 'D' if round(pred_home) == round(pred_away) else ('H' if round(pred_home) > round(pred_away) else 'A')
                 
+                # Adjust gradient based on result prediction accuracy
                 multiplier = 2 if true_result != pred_result else 1
-                grad[0] += multiplier * 2 * (pred_home - true_home) * X[i]
-                grad[1] += multiplier * 2 * (pred_away - true_away) * X[i]
+                
+                # Update gradients separately for home and away predictions
+                grad_home += multiplier * 2 * (pred_home - true_home) * X[i]
+                grad_away += multiplier * 2 * (pred_away - true_away) * X[i]
             
             # Update coefficients with L2 regularization
-            self.coef_ -= learning_rate * (grad / len(X) + self.alpha * self.coef_)
+            self.coef_[0] -= learning_rate * (grad_home / len(X) + self.alpha * self.coef_[0])
+            self.coef_[1] -= learning_rate * (grad_away / len(X) + self.alpha * self.coef_[1])
         
         return self
     
