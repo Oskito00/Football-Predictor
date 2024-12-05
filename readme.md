@@ -47,7 +47,7 @@ This project scrapes data from the [Premier League Stats website](https://www.pr
   - Reached a **51% average accuracy** for match result predictions using the current model.
 - **Observations:**
   - Including data from past seasons reduced accuracy, suggesting that recent data is more predictive.
-  - Head-to-head statistics were among the top predictive features.
+  - Head-to-head statistics were among the top predictive features. This will be revisited as it seems intuitive that past data would be useful.
 
 ## Future Work
 
@@ -56,9 +56,9 @@ To improve the model’s accuracy, the following enhancements are planned:
 - **Player Performance Metrics:**
   - Key player form and fitness levels.
   - Identification of key players based on goals assisted/scored; potentially using fantasy points.
+  - Impact of key players being injured or suspended.
 - **Team Dynamics:**
   - Historical performance against similar formations.
-  - Impact of key players being injured or suspended.
   - Stability of the starting lineup.
   - Impact of recent transfers in or out of the club.
 - **Financial Factors:**
@@ -73,7 +73,10 @@ To improve the model’s accuracy, the following enhancements are planned:
   - Substitution impact.
 - **Sentiment Analysis:**
   - Manager sentiment analysis.
+  - Key player sentiment analysis.
   - Social media sentiment analysis (e.g., Twitter).
+- **Synthetic Data:**
+  - Add synthetic data taken from the same distribution.
 
 ## Acknowledgments
 
@@ -81,6 +84,4 @@ To improve the model’s accuracy, the following enhancements are planned:
 
 ## Installation and Usage
 
-1. Clone this repository:
-   ```bash
-   git clone <repository-url>
+#TODO
