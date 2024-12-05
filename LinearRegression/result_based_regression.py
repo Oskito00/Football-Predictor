@@ -109,6 +109,30 @@ def save_fold_predictions(predictions, actual_values, fixture_data, fold_number,
     
     print(f"\nFold {fold_number} {'Test' if is_test else 'Train'} predictions saved to {filename}")
 
+def select_important_features(X, feature_importance, threshold_percentile=75):
+    """
+    Select features based on their importance scores.
+    Always include H2H features.
+    Returns the selected feature indices and their names.
+    """
+    # Get the average importance across both home and away predictions
+    avg_importance = np.mean(np.abs(feature_importance), axis=0)
+    
+    # Calculate the importance threshold based on percentile
+    threshold = np.percentile(avg_importance, threshold_percentile)
+    
+    # Get indices of important features
+    important_indices = np.where(avg_importance >= threshold)[0]
+    
+    # Always include H2H features
+    h2h_features = [i for i, col in enumerate(X.columns) if 'h2h_' in col]
+    important_indices = np.unique(np.concatenate((important_indices, h2h_features)))
+    
+    # Get names of important features
+    feature_names = X.columns[important_indices].tolist()
+    
+    return important_indices, feature_names
+
 def main():
     # Load 2024 data
     print("Loading 2024 data...")
@@ -128,23 +152,48 @@ def main():
     best_alpha = 5.0
     model = ResultBasedRidge(alpha=best_alpha)
     
-    # Perform k-fold cross-validation
+    # First, get feature importance from full dataset
+    scaler = StandardScaler()
+    X_scaled = scaler.fit_transform(X)
+    model.fit(X_scaled, y)
+    feature_importance = model.feature_importance()
+    
+    # Select important features
+    important_indices, important_features = select_important_features(X, feature_importance)
+    print("\nSelected Important Features:")
+    for idx, feature in enumerate(important_features):
+        importance_score = np.mean(np.abs(feature_importance[:, important_indices[idx]]))
+        print(f"{feature}: {importance_score:.4f}")
+    
+    # Now perform cross-validation using only important features
+    print("\nTraining with selected features...")
+    all_train_accuracies = []
+    all_test_accuracies = []
+    
     for fold, (train_idx, test_idx) in enumerate(kf.split(X), 1):
         X_train, X_test = X.iloc[train_idx], X.iloc[test_idx]
         y_train, y_test = y.iloc[train_idx], y.iloc[test_idx]
         data_test = data.iloc[test_idx]
+        
+        print(f"\nFold {fold}")
+        print(f"Training set size: {len(X_train)}, Test set size: {len(X_test)}")
         
         # Scale features
         scaler = StandardScaler()
         X_train_scaled = scaler.fit_transform(X_train)
         X_test_scaled = scaler.transform(X_test)
         
-        # Train model
-        model.fit(X_train_scaled, y_train)
+        # Use only important features
+        X_train_important = X_train_scaled[:, important_indices]
+        X_test_important = X_test_scaled[:, important_indices]
+        
+        # Train model with important features
+        model = ResultBasedRidge(alpha=best_alpha)
+        model.fit(X_train_important, y_train)
         
         # Make predictions
-        train_predictions = model.predict(X_train_scaled)
-        test_predictions = model.predict(X_test_scaled)
+        train_predictions = model.predict(X_train_important)
+        test_predictions = model.predict(X_test_important)
         
         # Save predictions
         save_fold_predictions(train_predictions, y_train, data.iloc[train_idx], fold, is_test=False)
@@ -154,9 +203,25 @@ def main():
         train_accuracy = custom_result_loss(y_train, train_predictions)
         test_accuracy = custom_result_loss(y_test, test_predictions)
         
-        print(f"Fold {fold} - Train Accuracy: {train_accuracy:.3f}, Test Accuracy: {test_accuracy:.3f}")
+        all_train_accuracies.append(train_accuracy)
+        all_test_accuracies.append(test_accuracy)
+        
+        print(f"Train Accuracy: {train_accuracy:.3f}, Test Accuracy: {test_accuracy:.3f}")
+        
+        # Print actual vs predicted for test set
+        print("\nTest Set Predictions (first 5):")
+        for i in range(min(5, len(test_predictions))):
+            true_result = 'D' if y_test.iloc[i]['home_goals'] == y_test.iloc[i]['away_goals'] else \
+                         ('H' if y_test.iloc[i]['home_goals'] > y_test.iloc[i]['away_goals'] else 'A')
+            pred_result = 'D' if round(test_predictions[i][0]) == round(test_predictions[i][1]) else \
+                         ('H' if round(test_predictions[i][0]) > round(test_predictions[i][1]) else 'A')
+            print(f"True: {true_result} ({y_test.iloc[i]['home_goals']}-{y_test.iloc[i]['away_goals']}), "
+                  f"Predicted: {pred_result} ({round(test_predictions[i][0])}-{round(test_predictions[i][1])})")
     
-    print(f"\nFinal model trained with alpha = {best_alpha}")
+    print("\nOverall Statistics:")
+    print(f"Average Train Accuracy: {np.mean(all_train_accuracies):.3f} ± {np.std(all_train_accuracies):.3f}")
+    print(f"Average Test Accuracy: {np.mean(all_test_accuracies):.3f} ± {np.std(all_test_accuracies):.3f}")
+    print(f"\nFinal model trained with alpha = {best_alpha} using {len(important_features)} important features")
 
 if __name__ == "__main__":
     main()
