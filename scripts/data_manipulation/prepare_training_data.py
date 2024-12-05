@@ -482,5 +482,6 @@ def process_future_fixtures():
 
 
 if __name__ == "__main__":
-    process_future_fixtures()
+    process_all_years()
+    # process_future_fixtures()
     

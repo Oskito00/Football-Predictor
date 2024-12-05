@@ -157,7 +157,7 @@ def main():
     kf = KFold(n_splits=5, shuffle=True, random_state=42)
     
     # Use the best alpha value and percentile
-    best_alpha = 5.0
+    best_alpha = 2.0
     percentile = 50
     
     print("\nTraining with selected features...")
@@ -236,19 +236,19 @@ def predict_future_fixtures():
     y = data[['home_goals', 'away_goals']]
     
     # Use the best alpha value and percentile
-    best_alpha = 5.0
+    best_alpha = 2.0
     percentile = 50
     
-    # Train final model on all data
-    print("\nTraining final model on all data...")
+    # First get feature importance from initial model
+    print("\nSelecting important features...")
     scaler = StandardScaler()
     X_scaled = scaler.fit_transform(X)
     
-    model = ResultBasedRidge(alpha=best_alpha)
-    model.fit(X_scaled, y)
-    feature_importance = model.feature_importance()
+    initial_model = ResultBasedRidge(alpha=best_alpha)
+    initial_model.fit(X_scaled, y)
+    feature_importance = initial_model.feature_importance()
     
-    # Select important features using all training data
+    # Select important features
     important_indices, important_features = select_important_features(X, feature_importance, percentile)
     print(f"\nNumber of features selected: {len(important_features)}")
     print("\nSelected Important Features:")
@@ -256,9 +256,15 @@ def predict_future_fixtures():
         importance_score = np.mean(np.abs(feature_importance[:, important_indices[idx]]))
         print(f"{feature}: {importance_score:.4f}")
     
+    # Train final model using only important features
+    print("\nTraining final model with selected features...")
+    X_important = X_scaled[:, important_indices]
+    final_model = ResultBasedRidge(alpha=best_alpha)
+    final_model.fit(X_important, y)
+    
     # Load and prepare future fixtures
     print("\nLoading future fixtures...")
-    future_data = pd.read_csv('LinearRegression/data/2024/future_fixture_data.csv')
+    future_data = pd.read_csv('LinearRegression/data/2024/future_fixtures_prepared.csv')
     X_future = future_data[feature_cols]
     
     # Scale future features and select important ones
@@ -267,7 +273,7 @@ def predict_future_fixtures():
     
     # Make predictions
     print("\nMaking predictions...")
-    predictions = model.predict(X_future_important)
+    predictions = final_model.predict(X_future_important)
     
     # Save predictions
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
@@ -295,6 +301,118 @@ def predict_future_fixtures():
     print(f"\nFuture predictions saved to {filename}")
     print(f"Final model trained with alpha = {best_alpha} using {len(important_features)} important features")
 
+def find_optimal_parameters():
+    """Find optimal alpha and percentile values using grid search."""
+    print("\nFinding optimal parameters...")
+    
+    # Load 2024 data
+    print("Loading 2024 data...")
+    data = pd.read_csv('LinearRegression/data/2024/training_data.csv')
+    
+    # Prepare features (X) and targets (y)
+    feature_cols = [col for col in data.columns 
+                   if col not in ['fixture_id', 'home_team', 'away_team', 
+                                'home_goals', 'away_goals']]
+    X = data[feature_cols]
+    y = data[['home_goals', 'away_goals']]
+    
+    # Initialize k-fold cross-validation
+    kf = KFold(n_splits=5, shuffle=True, random_state=42)
+    
+    # Define parameter grid
+    alphas = [0.1, 0.5, 1.0, 2.0, 5.0, 10.0]
+    percentiles = [0, 25, 50, 75]  # 0 means use all features
+    
+    best_params = {'alpha': None, 'percentile': None}
+    best_test_accuracy = 0
+    results = []
+    
+    # Grid search
+    for alpha in alphas:
+        for percentile in percentiles:
+            print(f"\nTesting alpha={alpha}, percentile={percentile}")
+            train_accuracies = []
+            test_accuracies = []
+            
+            for fold, (train_idx, test_idx) in enumerate(kf.split(X), 1):
+                X_train, X_test = X.iloc[train_idx], X.iloc[test_idx]
+                y_train, y_test = y.iloc[train_idx], y.iloc[test_idx]
+                
+                # Scale features
+                scaler = StandardScaler()
+                X_train_scaled = scaler.fit_transform(X_train)
+                X_test_scaled = scaler.transform(X_test)
+                
+                # Get feature importance from training data only
+                model = ResultBasedRidge(alpha=alpha)
+                model.fit(X_train_scaled, y_train)
+                feature_importance = model.feature_importance()
+                
+                # Select important features using only training data
+                important_indices, _ = select_important_features(X_train, feature_importance, percentile)
+                
+                # Use only important features
+                X_train_important = X_train_scaled[:, important_indices]
+                X_test_important = X_test_scaled[:, important_indices]
+                
+                # Train model with important features
+                model = ResultBasedRidge(alpha=alpha)
+                model.fit(X_train_important, y_train)
+                
+                # Make predictions
+                train_predictions = model.predict(X_train_important)
+                test_predictions = model.predict(X_test_important)
+                
+                # Calculate accuracies
+                train_accuracy = custom_result_loss(y_train, train_predictions)
+                test_accuracy = custom_result_loss(y_test, test_predictions)
+                train_accuracies.append(train_accuracy)
+                test_accuracies.append(test_accuracy)
+            
+            # Calculate average accuracies across folds
+            avg_train_accuracy = np.mean(train_accuracies)
+            avg_test_accuracy = np.mean(test_accuracies)
+            std_test_accuracy = np.std(test_accuracies)
+            
+            results.append({
+                'alpha': alpha,
+                'percentile': percentile,
+                'train_accuracy': avg_train_accuracy,
+                'test_accuracy': avg_test_accuracy,
+                'std': std_test_accuracy
+            })
+            
+            print(f"Average Train Accuracy: {avg_train_accuracy:.3f}, "
+                  f"Average Test Accuracy: {avg_test_accuracy:.3f} ± {std_test_accuracy:.3f}")
+            
+            # Update best parameters if necessary
+            if avg_test_accuracy > best_test_accuracy:
+                best_test_accuracy = avg_test_accuracy
+                best_params['alpha'] = alpha
+                best_params['percentile'] = percentile
+    
+    # Print results summary
+    print("\nResults Summary:")
+    print("\nAll Results (sorted by test accuracy):")
+    sorted_results = sorted(results, key=lambda x: x['test_accuracy'], reverse=True)
+    for result in sorted_results:
+        print(f"Alpha: {result['alpha']}, Percentile: {result['percentile']}, "
+              f"Train Accuracy: {result['train_accuracy']:.3f}, "
+              f"Test Accuracy: {result['test_accuracy']:.3f} ± {result['std']:.3f}")
+    
+    print(f"\nBest Parameters:")
+    print(f"Alpha: {best_params['alpha']}")
+    print(f"Percentile: {best_params['percentile']}")
+    print(f"Best Test Accuracy: {best_test_accuracy:.3f}")
+    
+    return best_params
+
 if __name__ == "__main__":
+    # Find optimal parameters
+    # best_params = find_optimal_parameters()
+    
+    # Run main training with best parameters
     main()
-    # predict_future_fixtures()
+    
+    # Make future predictions with best parameters
+    predict_future_fixtures()

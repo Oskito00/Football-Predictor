@@ -73,7 +73,7 @@ def evaluate_predictions(fixtures, predictions):
 
 if __name__ == "__main__":
     fixtures_file = 'data/2024/premier_league_results.json'
-    predictions_file = 'predictions/fold_2_test_predictions_20241205_144211.json'
+    predictions_file = 'predictions/fold_3_test_predictions_20241205_175414.json'
     fixtures = load_fixtures(fixtures_file)
     predictions = load_predictions(predictions_file)
 
