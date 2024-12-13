@@ -234,18 +234,63 @@ def get_default_metrics():
         'has_advanced_stats': False
     }
 
-def get_match_importance(context, league_context, derbies):
+def get_league_standings(conn, competition_name, before_date):
+    """Get league standings before a specific date"""
+    query = """
+    WITH PreviousMatches AS (
+        SELECT 
+            home_team_name,
+            away_team_name,
+            home_score,
+            away_score,
+            start_time
+        FROM matches
+        WHERE competition_name = ?
+            AND start_time < ?
+            AND match_status = 'ended'
+    ),
+    TeamPoints AS (
+        SELECT 
+            team_name,
+            SUM(points) as total_points,
+            COUNT(*) as matches_played
+        FROM (
+            SELECT 
+                home_team_name as team_name,
+                CASE 
+                    WHEN home_score > away_score THEN 3
+                    WHEN home_score = away_score THEN 1
+                    ELSE 0
+                END as points
+            FROM PreviousMatches
+            UNION ALL
+            SELECT 
+                away_team_name as team_name,
+                CASE 
+                    WHEN away_score > home_score THEN 3
+                    WHEN home_score = away_score THEN 1
+                    ELSE 0
+                END as points
+            FROM PreviousMatches
+        )
+        GROUP BY team_name
+    )
+    SELECT 
+        team_name,
+        total_points,
+        matches_played,
+        ROW_NUMBER() OVER (ORDER BY total_points DESC, matches_played) as position
+    FROM TeamPoints
+    ORDER BY total_points DESC, matches_played
+    """
+    return pd.read_sql_query(query, conn, params=[competition_name, before_date])
+
+def calculate_match_importance(context, standings=None):
     """Calculate match importance (1-10) based on various factors"""
-    
-    # Initialize base importance
-    importance = 5  # Default league match importance
-    
     comp_name = context['competition_name'].iloc[0]
     round_num = context['round_number'].iloc[0]
-    matches_remaining = league_context['matches_remaining']
-    points_gap = league_context['points_gap']
     
-    # Define competition tiers
+    # Base importance by competition tier
     competition_tiers = {
         'UEFA Champions League': 1,
         'Premier League': 2, 'LaLiga': 2, 'Bundesliga': 2, 'Serie A': 2, 'Ligue 1': 2,
@@ -253,69 +298,50 @@ def get_match_importance(context, league_context, derbies):
         'FA Cup': 4, 'Copa del Rey': 4, 'DFB-Pokal': 4, 'Coppa Italia': 4,
         'Coupe de France': 4, 'Eredivisie': 4, 'UEFA Europa Conference League': 4,
         'EFL Cup': 5, 'Swiss Super League': 5, 'Austrian Bundesliga': 5,
-        'Danish Superliga': 5, 'Norwegian Eliteserien': 5, 'Swedish Allsvenskan': 5
+        'Danish Superliga': 5, 'Norwegian Eliteserien': 5, 'Swedish Allsvenskan': 5,
+        'Eliteserien': 5
     }
     
-    # Get competition tier
-    comp_tier = competition_tiers.get(comp_name, 6)
+    base_importance = 11 - competition_tiers.get(comp_name, 6)
     
-    # Check if it's a knockout match
-    is_knockout = bool(round_num) and any(cup in comp_name for cup in ['Cup', 'UEFA', 'FIFA'])
-    
-    # Knockout stage importance
-    if is_knockout:
-        if round_num:  # If round number exists
-            # Higher round numbers typically mean later stages
-            if round_num >= 7:  # Likely final stages
-                importance = 10
-            elif round_num >= 6:  # Likely semi
-                importance = 9
-            elif round_num >= 5:  # Likely quarter
-                importance = 8
+    # Knockout stage bonus
+    if any(cup in comp_name for cup in ['Cup', 'UEFA', 'FIFA']):
+        if round_num:
+            if round_num >= 7:  # Final stages
+                base_importance += 4
+            elif round_num >= 6:  # Semi
+                base_importance += 3
+            elif round_num >= 5:  # Quarter
+                base_importance += 2
             elif round_num >= 4:  # Early knockout
-                importance = 7
-            else:  # Group/Early stages
-                importance = 6
+                base_importance += 1
     
-    # League context importance
-    if not is_knockout:  # Only for league matches
+    # League position importance
+    position_importance = 0
+    if standings is not None and not standings.empty:
+        home_team = context['home_team_name'].iloc[0]
+        away_team = context['away_team_name'].iloc[0]
+        
+        home_pos = standings[standings['team_name'] == home_team]['position'].iloc[0] if not standings[standings['team_name'] == home_team].empty else 0
+        away_pos = standings[standings['team_name'] == away_team]['position'].iloc[0] if not standings[standings['team_name'] == away_team].empty else 0
+        
         # Title race
-        if league_context['title_race']:
-            if matches_remaining <= 5:  # End of season
-                importance += 3
-            elif matches_remaining <= 10:
-                importance += 2
-            else:
-                importance += 1
-                
+        if home_pos <= 3 or away_pos <= 3:
+            position_importance += 2
+        # European spots
+        elif home_pos <= 6 or away_pos <= 6:
+            position_importance += 1
         # Relegation battle
-        if league_context['relegation_battle']:
-            if matches_remaining <= 5:  # End of season
-                importance += 2
-            elif matches_remaining <= 10:
-                importance += 1
-                
-        # Close points gap
-        if points_gap <= 3:
-            importance += 1
+        elif home_pos >= len(standings) - 3 or away_pos >= len(standings) - 3:
+            position_importance += 1
+            
+        # Close positions
+        if abs(home_pos - away_pos) <= 2:
+            position_importance += 1
     
-    # Derby importance
-    if league_context['is_derby']:
-        importance += 1
+    final_importance = min(10, base_importance + position_importance)
     
-    # Competition tier adjustment
-    importance = min(10, importance + (7 - comp_tier))
-    
-    # Is domestic or European
-    is_domestic = 1 if context['country'].iloc[0] != 'international' else 0
-    
-    return {
-        'match_importance': min(10, importance),  # Cap at 10
-        'is_knockout': 1 if is_knockout else 0,
-        'is_domestic': is_domestic,
-        'competition_tier': comp_tier,
-        'competition_name': comp_name
-    }
+    return final_importance
 
 def get_match_context(conn, match_id, derbies):
     """Get competition context for a match"""
@@ -333,22 +359,135 @@ def get_match_context(conn, match_id, derbies):
     """
     context = pd.read_sql_query(query, conn, params=[match_id])
     
-    # Get league context
-    league_context = get_league_context(
-        conn,
-        match_id,
-        context['home_team_name'].iloc[0],
-        context['away_team_name'].iloc[0],
-        context['competition_name'].iloc[0],
-        context['start_time'].iloc[0],
-        derbies
-    )
+    if context.empty:
+        return default_context()
     
-    # Calculate importance and other metrics
-    importance_context = get_match_importance(context, league_context, derbies)
+    # Get standings for league matches
+    standings = None
+    comp_name = context['competition_name'].iloc[0]
+    if not any(cup in comp_name for cup in ['Cup', 'UEFA', 'FIFA']):
+        standings = get_league_standings(conn, comp_name, context['start_time'].iloc[0])
     
-    # Combine all context
-    return {**importance_context, **league_context}
+    # Calculate importance
+    importance = calculate_match_importance(context, standings)
+    
+    # Rest of the context calculations...
+    is_knockout = bool(context['round_number'].iloc[0]) and any(cup in comp_name for cup in ['Cup', 'UEFA', 'FIFA'])
+    
+    international_competitions = [
+        'UEFA Champions League',
+        'UEFA Europa League',
+        'UEFA Europa Conference League',
+        'UEFA Super Cup',
+        'FIFA Club World Cup'
+    ]
+    is_domestic = 0 if comp_name in international_competitions else 1
+    
+    # Derby check
+    home_team = context['home_team_name'].iloc[0]
+    away_team = context['away_team_name'].iloc[0]
+    is_derby = int((home_team, away_team) in derbies.get(comp_name, []) or 
+                   (away_team, home_team) in derbies.get(comp_name, []))
+    
+    return {
+        'competition_name': comp_name,
+        'competition_tier': competition_tiers.get(comp_name, 6),
+        'is_knockout': int(is_knockout),
+        'is_domestic': is_domestic,
+        'match_importance': importance,
+        'is_derby': is_derby
+    }
+
+def get_match_importance(context, league_context, derbies):
+    """Calculate match importance (1-10) based on various factors"""
+    try:
+        # Initialize base importance
+        importance = 5  # Default league match importance
+        
+        comp_name = context['competition_name'].iloc[0]
+        round_num = context['round_number'].iloc[0]
+        
+        # Define competition tiers
+        competition_tiers = {
+            'UEFA Champions League': 1,
+            'Premier League': 2, 'LaLiga': 2, 'Bundesliga': 2, 'Serie A': 2, 'Ligue 1': 2,
+            'UEFA Europa League': 3, 'FIFA Club World Cup': 3,
+            'FA Cup': 4, 'Copa del Rey': 4, 'DFB-Pokal': 4, 'Coppa Italia': 4,
+            'Coupe de France': 4, 'Eredivisie': 4, 'UEFA Europa Conference League': 4,
+            'EFL Cup': 5, 'Swiss Super League': 5, 'Austrian Bundesliga': 5,
+            'Danish Superliga': 5, 'Norwegian Eliteserien': 5, 'Swedish Allsvenskan': 5,
+            'Eliteserien': 5  # Added Norwegian league
+        }
+        
+        # Get competition tier (default to 6 if not found)
+        comp_tier = competition_tiers.get(comp_name, 6)
+        
+        # Check if it's a knockout match
+        is_knockout = bool(round_num) and any(cup in comp_name for cup in ['Cup', 'UEFA', 'FIFA'])
+        
+        # Knockout stage importance
+        if is_knockout:
+            if round_num >= 7:  # Likely final stages
+                importance = 10
+            elif round_num >= 6:  # Likely semi
+                importance = 9
+            elif round_num >= 5:  # Likely quarter
+                importance = 8
+            elif round_num >= 4:  # Early knockout
+                importance = 7
+            else:  # Group/Early stages
+                importance = 6
+        
+        # League context importance
+        if not is_knockout:
+            if league_context['title_race']:
+                if league_context['matches_remaining'] <= 5:
+                    importance += 3
+                elif league_context['matches_remaining'] <= 10:
+                    importance += 2
+                else:
+                    importance += 1
+            
+            if league_context['relegation_battle']:
+                if league_context['matches_remaining'] <= 5:
+                    importance += 2
+                elif league_context['matches_remaining'] <= 10:
+                    importance += 1
+            
+            if league_context['points_gap'] <= 3:
+                importance += 1
+        
+        # Derby importance
+        if league_context['is_derby']:
+            importance += 1
+        
+        # Competition tier adjustment
+        importance = min(10, importance + (7 - comp_tier))
+        
+        # Is domestic or European
+        is_domestic = 1 if context['country'].iloc[0] != 'international' else 0
+        
+        result = {
+            'match_importance': min(10, importance),
+            'is_knockout': 1 if is_knockout else 0,
+            'is_domestic': is_domestic,
+            'competition_tier': comp_tier,
+            'competition_name': comp_name
+        }
+        
+        print("\nDebug - Match importance calculation result:", result)
+        return result
+        
+    except Exception as e:
+        print(f"\nError in get_match_importance: {str(e)}")
+        # Return default values if there's an error
+        return {
+            'match_importance': 5,
+            'is_knockout': 0,
+            'is_domestic': 1,
+            'competition_tier': 6,
+            'competition_name': context['competition_name'].iloc[0] if not context.empty else 'Unknown'
+        }
 
 def get_league_context(conn, match_id, home_team, away_team, competition_name, date, derbies):
     """Get league standings context before the match"""
@@ -490,19 +629,13 @@ def create_training_data(db_path, output_dir, debug_mode=False):
                     'home_goals': match['home_goals'],
                     'away_goals': match['away_goals'],
                     
-                    # Add context features
+                    # Simplified context features
                     'competition_name': match_context['competition_name'],
                     'competition_tier': match_context['competition_tier'],
                     'is_knockout': match_context['is_knockout'],
                     'is_domestic': match_context['is_domestic'],
                     'match_importance': match_context['match_importance'],
-                    'is_derby': match_context['is_derby'],
-                    'title_race': match_context['title_race'],
-                    'relegation_battle': match_context['relegation_battle'],
-                    'points_gap': match_context['points_gap'],
-                    'home_position': match_context['home_position'],
-                    'away_position': match_context['away_position'],
-                    'matches_remaining': match_context['matches_remaining']
+                    'is_derby': match_context['is_derby']
                 }
                 
                 basic_data.append(basic_row)
