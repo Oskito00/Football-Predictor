@@ -6,10 +6,22 @@ from pathlib import Path
 from datetime import datetime
 import time
 
+# Define competition tiers at module level
+COMPETITION_TIERS = {
+    'UEFA Champions League': 1,
+    'Premier League': 2, 'LaLiga': 2, 'Bundesliga': 2, 'Serie A': 2, 'Ligue 1': 2,
+    'UEFA Europa League': 3, 'FIFA Club World Cup': 3,
+    'FA Cup': 4, 'Copa del Rey': 4, 'DFB-Pokal': 4, 'Coppa Italia': 4,
+    'Coupe de France': 4, 'Eredivisie': 4, 'UEFA Europa Conference League': 4,
+    'EFL Cup': 5, 'Swiss Super League': 5, 'Austrian Bundesliga': 5,
+    'Danish Superliga': 5, 'Norwegian Eliteserien': 5, 'Swedish Allsvenskan': 5,
+    'Eliteserien': 5
+}
+
 derbies = {
     'Premier League': [
         ('Arsenal', 'Tottenham Hotspur'),  # North London Derby
-        ('Liverpool', 'Everton'),  # Merseyside Derby
+        ('Liverpool FC', 'Everton'),  # Merseyside Derby
         ('Manchester United', 'Manchester City'),  # Manchester Derby
         ('Chelsea', 'Tottenham Hotspur'),  # London Derby
         ('Arsenal', 'Chelsea'),  # London Derby
@@ -290,29 +302,23 @@ def calculate_match_importance(context, standings=None):
     comp_name = context['competition_name'].iloc[0]
     round_num = context['round_number'].iloc[0]
     
-    # Base importance by competition tier
-    competition_tiers = {
-        'UEFA Champions League': 1,
-        'Premier League': 2, 'LaLiga': 2, 'Bundesliga': 2, 'Serie A': 2, 'Ligue 1': 2,
-        'UEFA Europa League': 3, 'FIFA Club World Cup': 3,
-        'FA Cup': 4, 'Copa del Rey': 4, 'DFB-Pokal': 4, 'Coppa Italia': 4,
-        'Coupe de France': 4, 'Eredivisie': 4, 'UEFA Europa Conference League': 4,
-        'EFL Cup': 5, 'Swiss Super League': 5, 'Austrian Bundesliga': 5,
-        'Danish Superliga': 5, 'Norwegian Eliteserien': 5, 'Swedish Allsvenskan': 5,
-        'Eliteserien': 5
-    }
+    # Start with a base importance of 5
+    base_importance = 5
     
-    base_importance = 11 - competition_tiers.get(comp_name, 6)
+    # Add importance based on competition tier (max +2 for top competitions)
+    tier = COMPETITION_TIERS.get(comp_name, 6)
+    tier_bonus = max(0, (7 - tier) / 2)  # This gives +2 for tier 1, +1.5 for tier 2, etc.
+    base_importance += tier_bonus
     
     # Knockout stage bonus
     if any(cup in comp_name for cup in ['Cup', 'UEFA', 'FIFA']):
         if round_num:
             if round_num >= 7:  # Final stages
-                base_importance += 4
-            elif round_num >= 6:  # Semi
                 base_importance += 3
-            elif round_num >= 5:  # Quarter
+            elif round_num >= 6:  # Semi
                 base_importance += 2
+            elif round_num >= 5:  # Quarter
+                base_importance += 1.5
             elif round_num >= 4:  # Early knockout
                 base_importance += 1
     
@@ -322,26 +328,29 @@ def calculate_match_importance(context, standings=None):
         home_team = context['home_team_name'].iloc[0]
         away_team = context['away_team_name'].iloc[0]
         
-        home_pos = standings[standings['team_name'] == home_team]['position'].iloc[0] if not standings[standings['team_name'] == home_team].empty else 0
-        away_pos = standings[standings['team_name'] == away_team]['position'].iloc[0] if not standings[standings['team_name'] == away_team].empty else 0
-        
-        # Title race
-        if home_pos <= 3 or away_pos <= 3:
-            position_importance += 2
-        # European spots
-        elif home_pos <= 6 or away_pos <= 6:
-            position_importance += 1
-        # Relegation battle
-        elif home_pos >= len(standings) - 3 or away_pos >= len(standings) - 3:
-            position_importance += 1
+        try:
+            home_pos = standings[standings['team_name'] == home_team]['position'].iloc[0]
+            away_pos = standings[standings['team_name'] == away_team]['position'].iloc[0]
             
-        # Close positions
-        if abs(home_pos - away_pos) <= 2:
-            position_importance += 1
+            # Title race
+            if home_pos <= 3 or away_pos <= 3:
+                position_importance += 1.5
+            # European spots
+            elif home_pos <= 6 or away_pos <= 6:
+                position_importance += 1
+            # Relegation battle
+            elif home_pos >= len(standings) - 3 or away_pos >= len(standings) - 3:
+                position_importance += 1
+                
+            # Close positions
+            if abs(home_pos - away_pos) <= 2:
+                position_importance += 0.5
+        except:
+            pass  # If positions can't be determined, skip this part
     
     final_importance = min(10, base_importance + position_importance)
     
-    return final_importance
+    return round(final_importance, 1)  # Round to 1 decimal place
 
 def get_match_context(conn, match_id, derbies):
     """Get competition context for a match"""
@@ -377,7 +386,7 @@ def get_match_context(conn, match_id, derbies):
     international_competitions = [
         'UEFA Champions League',
         'UEFA Europa League',
-        'UEFA Europa Conference League',
+        'UEFA Conference League',
         'UEFA Super Cup',
         'FIFA Club World Cup'
     ]
@@ -391,7 +400,7 @@ def get_match_context(conn, match_id, derbies):
     
     return {
         'competition_name': comp_name,
-        'competition_tier': competition_tiers.get(comp_name, 6),
+        'competition_tier': COMPETITION_TIERS.get(comp_name, 6),
         'is_knockout': int(is_knockout),
         'is_domestic': is_domestic,
         'match_importance': importance,
@@ -535,7 +544,7 @@ def create_training_data(db_path, output_dir, debug_mode=False):
         print("\nFetching completed matches...")
         if debug_mode:
             matches_query = """
-            WITH numbered_matches AS (
+            WITH PremierLeagueMatches AS (
                 SELECT 
                     match_id as fixture_id,
                     start_time,
@@ -543,20 +552,32 @@ def create_training_data(db_path, output_dir, debug_mode=False):
                     away_team_name as away_team,
                     home_score as home_goals,
                     away_score as away_goals,
-                    ROW_NUMBER() OVER (ORDER BY start_time) as row_num
+                    competition_name
                 FROM matches
                 WHERE match_status = 'ended'
+                AND competition_name = 'Premier League'
+                ORDER BY start_time DESC
+                LIMIT 25
+            ),
+            OtherMatches AS (
+                SELECT 
+                    match_id as fixture_id,
+                    start_time,
+                    home_team_name as home_team,
+                    away_team_name as away_team,
+                    home_score as home_goals,
+                    away_score as away_goals,
+                    competition_name
+                FROM matches
+                WHERE match_status = 'ended'
+                AND competition_name != 'Premier League'
+                ORDER BY start_time DESC
+                LIMIT 25
             )
-            SELECT 
-                fixture_id,
-                start_time,
-                home_team,
-                away_team,
-                home_goals,
-                away_goals
-            FROM numbered_matches
-            WHERE row_num % 25 = 0
-            ORDER BY start_time
+            SELECT * FROM PremierLeagueMatches
+            UNION ALL
+            SELECT * FROM OtherMatches
+            ORDER BY start_time DESC
             """
         else:
             matches_query = """
@@ -688,6 +709,23 @@ def create_training_data(db_path, output_dir, debug_mode=False):
         if 'conn' in locals():
             conn.close()
             print("\nDatabase connection closed")
+
+def default_context():
+    """Return default context when match not found"""
+    return {
+        'competition_tier': 6,
+        'is_knockout': 0,
+        'match_importance': 1,
+        'is_domestic': 0,
+        'competition_name': 'Unknown',
+        'is_derby': 0,
+        'title_race': 0,
+        'relegation_battle': 0,
+        'points_gap': 0,
+        'home_position': 0,
+        'away_position': 0,
+        'matches_remaining': 0
+    }
 
 if __name__ == "__main__":
     try:
