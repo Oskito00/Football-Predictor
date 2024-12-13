@@ -13,5 +13,10 @@ LinearRegression/predictions/
 future_fixtures.json
 data/
 predictions/
+.env
+*.json
+football_data.db
+football.db
+
 
 
