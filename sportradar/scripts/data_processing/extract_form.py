@@ -199,8 +199,13 @@ def calculate_metrics(matches_df):
         'average_clean_sheets': clean_sheets/matches_played
     }
     
-    # Advanced metrics (only if available)
+    #Get the average advanced stats data with the sum of the stats divided by the number of matches that had respectice advanced stats
     if not matches_df['passes_successful'].isna().all() and not matches_df['passes_total'].isna().all():
+        print("has passes, successful and total:")
+        print("Passes successful:")
+        print(matches_df['passes_successful'])
+        print("Passes total:")
+        print(matches_df['passes_total'])
         metrics['pass_effectiveness'] = safe_ratio(
             matches_df['passes_successful'].sum(),
             matches_df['passes_total'].sum()
@@ -208,6 +213,10 @@ def calculate_metrics(matches_df):
         
     if not matches_df['shots_on_target'].isna().all() and not matches_df['shots_total'].isna().all():
         print("has shots")
+        print("Shots on target:")
+        print(matches_df['shots_on_target'])
+        print("Shots total:")
+        print(matches_df['shots_total'])
         metrics['shot_accuracy'] = safe_ratio(
             matches_df['shots_on_target'].sum(),
             matches_df['shots_total'].sum()
@@ -215,6 +224,10 @@ def calculate_metrics(matches_df):
         
     if not matches_df['chances_created'].isna().all() and not matches_df['shots_on_target'].isna().all():
         print("has chances")
+        print("Chances created:")
+        print(matches_df['chances_created'])
+        print("Shots on target:")
+        print(matches_df['shots_on_target'])
         metrics['conversion_rate'] = safe_ratio(
             matches_df['shots_on_target'].sum(),
             matches_df['chances_created'].sum()
@@ -222,25 +235,20 @@ def calculate_metrics(matches_df):
         
     if not matches_df['tackles_successful'].isna().all() and not matches_df['tackles_total'].isna().all():
         print("has tackles")
+        print("Tackles successful:")
+        print(matches_df['tackles_successful'])
+        print("Tackles total:")
+        print(matches_df['tackles_total'])
         metrics['defensive_success'] = safe_ratio(
             matches_df['tackles_successful'].sum(),
             matches_df['tackles_total'].sum()
         )
     
-    if 'pass_effectiveness' in metrics or 'shot_accuracy' in metrics or 'conversion_rate' in metrics or 'defensive_success' in metrics:
+    #Only set has_advanced_stats to true if all advanced stats are present
+    if 'pass_effectiveness' in metrics and 'shot_accuracy' in metrics and 'conversion_rate' in metrics and 'defensive_success' in metrics:
         metrics['has_advanced_stats'] = True
     else:
         metrics['has_advanced_stats'] = False
-
-    # Set metrics to NaN if they don't exist
-    if not metrics.get('pass_effectiveness'):
-        metrics['pass_effectiveness'] = float('nan')
-    if not metrics.get('shot_accuracy'): 
-        metrics['shot_accuracy'] = float('nan')
-    if not metrics.get('conversion_rate'):
-        metrics['conversion_rate'] = float('nan')
-    if not metrics.get('defensive_success'):
-        metrics['defensive_success'] = float('nan')
 
     return metrics
 
@@ -301,7 +309,7 @@ def create_training_data(db_path, output_dir, debug_mode=False):
                 home_goals,
                 away_goals
             FROM numbered_matches
-            WHERE row_num % 50 = 0
+            WHERE row_num % 100 = 0
             ORDER BY start_time
             """
         else:
@@ -428,7 +436,7 @@ if __name__ == "__main__":
     try:
         output_dir = 'sportradar/data/processed_data'
         debug_mode = True  # Set to False for full processing
-        basic_df, advanced_df = create_training_data('football_data.db', output_dir, debug_mode=debug_mode)
+        basic_df, advanced_df = create_training_data('football_data.db', output_dir, debug_mode=True)
         
     except Exception as e:
         print(f"\nScript failed: {str(e)}")
