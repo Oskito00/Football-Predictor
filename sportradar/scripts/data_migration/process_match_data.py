@@ -38,9 +38,11 @@ def create_tables(cursor):
         venue_country TEXT,
         competition_id TEXT,
         competition_name TEXT,
+        competition_type TEXT,
+        competition_phase TEXT,
         season_id TEXT,
         season_name TEXT,
-        round_number INTEGER,
+        round_display TEXT,
         home_team_id TEXT,
         home_team_name TEXT,
         away_team_id TEXT,
@@ -270,20 +272,25 @@ def process_match_data(db_file):
             update_related_tables(cursor, match_data)
             
             # Insert match data
+            round_info = context.get("round", {})
+            round_display = round_info.get("name") if round_info.get("name") else str(round_info.get("number", ""))
+
             cursor.execute('''INSERT OR REPLACE INTO matches (
                 match_id, start_time, start_time_confirmed, venue_id, venue_name, venue_capacity,
-                venue_city, venue_country, competition_id, competition_name, season_id, season_name,
-                round_number, home_team_id, home_team_name, away_team_id, away_team_name,
+                venue_city, venue_country, competition_id, competition_name, competition_type, competition_phase, season_id, season_name,
+                round_display, home_team_id, home_team_name, away_team_id, away_team_name,
                 home_score, away_score, match_status, attendance
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''', (
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''', (
                 match_id, start_time, match.get("start_time_confirmed"),
                 venue.get("id"), venue.get("name"), venue.get("capacity"),
                 venue.get("city_name"), venue.get("country_name"),
                 context.get("competition", {}).get("id"),
                 context.get("competition", {}).get("name"),
+                context.get("stage", {}).get("type"),
+                context.get("stage", {}).get("phase"),
                 context.get("season", {}).get("id"),
                 context.get("season", {}).get("name"),
-                context.get("round", {}).get("number"),
+                round_display,
                 home_team.get("id"), home_team.get("name"),
                 away_team.get("id"), away_team.get("name"),
                 home_score, away_score, match_status, attendance
