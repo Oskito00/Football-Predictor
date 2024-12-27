@@ -135,6 +135,7 @@ PREVIOUS_MATCHES_QUERY = """
             m.away_team_name,
             m.home_score,
             m.away_score,
+            m.season_id,
             CASE 
                 WHEN m.home_team_name = ? THEN 'home'
                 ELSE 'away'
