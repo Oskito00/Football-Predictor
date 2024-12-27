@@ -39,6 +39,7 @@ COMPETITION_TIERS = {
 }
 
 # Derby matches by competition
+#TODO: Check team names are correct
 DERBIES= {
     'Premier League': [
         ('Arsenal', 'Tottenham Hotspur'),  # North London Derby
@@ -61,9 +62,9 @@ DERBIES= {
         ('Bayern Munich', '1860 Munich'),  # Munich Derby (historical)
     ],
     'Serie A': [
-        ('Inter Milan', 'AC Milan'),  # Derby della Madonnina
-        ('Roma', 'Lazio'),  # Derby della Capitale
-        ('Juventus', 'Torino'),  # Derby della Mole
+        ('Inter Milano', 'AC Milan'),  # Derby della Madonnina
+        ('AS Roma', 'Lazio Rome'),  # Derby della Capitale
+        ('Juventus Turin', 'Torino FC'),  # Derby della Mole
         ('Napoli', 'Roma'),  # Derby del Sole
         ('Genoa', 'Sampdoria'),  # Derby della Lanterna
     ],
@@ -173,6 +174,8 @@ WITH numbered_matches AS (
         m.competition_name,
         m.competition_id,
         m.competition_type,
+        m.competition_phase,
+        m.round_display,
         m.season_id,
         m.home_team_name as home_team,
         m.away_team_name as away_team,
@@ -282,6 +285,8 @@ SELECT
     m.competition_name,
     m.competition_id,
     m.competition_type,
+    m.competition_phase,
+    m.round_display,
     m.season_id,
     m.home_team_name as home_team,
     m.away_team_name as away_team,

@@ -10,7 +10,7 @@ from constants import (
     STATS_CHECK_QUERY,
     DEBUG_ENDED_MATCHES_QUERY
 )
-from team_stats import add_points_for_team, add_team_stats, get_league_positions, initialize_database, get_previous_matches
+from team_stats import add_points_for_team, add_team_stats, calculate_match_importance, calculate_stats_averages, get_league_positions, initialize_database, get_previous_matches
 
 
 def create_training_data(db_path, output_dir, debug_mode=False):
@@ -60,27 +60,22 @@ def create_training_data(db_path, output_dir, debug_mode=False):
                     add_team_stats(conn, match)
                     conn.commit()
                     
-                    home_previous = get_previous_matches(conn, match['home_team'], match['start_time'])
-                    away_previous = get_previous_matches(conn, match['away_team'], match['start_time'])
+                    print(f"Teams: {match['home_team']} vs {match['away_team']}")
+                    #TODO: Get recent form stats averages
 
-                    home_points, away_points = add_points_for_team(conn, match)
-                    positions = get_league_positions(conn, match)
-                    print(f"Home position: {positions['home']['position']}")
-                    print(f"Away position: {positions['away']['position']}")
-
-                    
-                
+                    match_importance = calculate_match_importance(conn, match)
+                    print(f"Match importance: {match_importance}")
+                          
                 else:
                     add_team_stats(conn, match)
                     conn.commit()
-                    
-                    home_previous = get_previous_matches(conn, match['home_team'], match['start_time'])
-                    away_previous = get_previous_matches(conn, match['away_team'], match['start_time'])
+                    #TODO: Get recent form stats averages
 
-                    home_points, away_points = add_points_for_team(conn, match)
-                    positions = get_league_positions(conn, match)
-                    print(f"Home position: {positions['home']['position']}")
-                    print(f"Away position: {positions['away']['position']}")
+                    print(f"Teams: {match['home_team']} vs {match['away_team']}")
+                    print("Match time: ", match['start_time'])
+
+                    match_importance = calculate_match_importance(conn, match)
+                    print(f"Match importance: {match_importance}")
 
 
 

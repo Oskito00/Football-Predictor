@@ -4,6 +4,7 @@ import pandas as pd
 import numpy as np
 
 from match_helpers import get_previous_matches
+from constants import DERBIES
 
 #Need to implement: 
 #Update team_table
@@ -147,13 +148,11 @@ def calculate_stats_averages(conn, before_match_date):
 
     #Final Away Metrics
     away_metrics = {'average_goals_scored': away_average_goals_scored, 'average_goals_conceded': away_average_goals_conceded, 'average_win_rate': away_average_win_rate, 'average_clean_sheets': away_average_clean_sheets, 'average_passes_successful': away_average_passes_successful, 'average_passes_total': away_average_passes_total, 'average_shots_on_target': away_average_shots_on_target, 'average_shots_total': away_average_shots_total, 'average_chances_created': away_average_chances_created, 'average_tackles_successful': away_average_tackles_successful, 'average_tackles_total': away_average_tackles_total}
-
+    return home_metrics, away_metrics
 def add_team_stats(conn, match):
     cursor = conn.cursor()
     
     # Debug print
-    print(f"\nAttempting to add match: {match.get('fixture_id')}")
-    print(f"Match data available: {match.keys()}")
     
     try:
         # Map the expected column names to what's in your database
@@ -197,10 +196,6 @@ def add_team_stats(conn, match):
             'tackles_total': match.get('away_tackles_total')
         }
 
-        # Debug print
-        print(f"Home stats prepared: {home_stats}")
-        print(f"Away stats prepared: {away_stats}")
-
         cursor.execute("""
             INSERT INTO team_running_stats (
                 team_name, start_time, season_id, competition_id, match_id,
@@ -229,9 +224,7 @@ def add_team_stats(conn, match):
             )
         """, away_stats)
 
-        conn.commit()
-        print("Successfully added match to database")
-        
+        conn.commit()        
     except Exception as e:
         print(f"Error adding match: {str(e)}")
         print(f"Match data: {match}")
@@ -380,47 +373,87 @@ def calculate_match_importance(conn, match):
     RELEGATION_BATTLE_BONUS = 2.0
     POSITION_PROXIMITY_MAX_BONUS = 1.5
     POINTS_PROXIMITY_MAX_BONUS = 1.5
+
+    CUP_IMPORTANCE = {
+    'UEFA Champions League': 7.0,
+    'UEFA Europa League': 6.0,
+    'UEFA Conference League': 5.5,
+    'FA Cup': 6.0,
+    'EFL Cup': 5.5,
+    'Coppa Italia': 5.5,
+    'Coupe de France': 5.5,
+    'Copa del Rey': 5.5,
+}
     
     importance = 0.0
     
     # Get current league positions and points
+    home_points, away_points = add_points_for_team(conn, match)
     positions = get_league_positions(conn, match)
     home_pos = positions['home']['position']
     away_pos = positions['away']['position']
-    home_points = positions['home']['points']
-    away_points = positions['away']['points']
-    matches_played = positions['home']['matches_played']  # Use home team's matches played as reference
+    print(f"Home position: {home_pos}")
+    print(f"Away position: {away_pos}")
+    matches_played = max(positions['home']['matches_played'], 
+                        positions['away']['matches_played'])
     
     # TODO: Need a way to identify if it's a cup match
     is_cup_match = match['competition_type'] == 'cup'
-    print(f"Is cup match: {is_cup_match}")
     
     if is_cup_match:
         importance = BASE_CUP_IMPORTANCE
         
+        cup_name = match['competition_name']
+        if cup_name in CUP_IMPORTANCE:
+            importance = CUP_IMPORTANCE[cup_name]
+        
         # TODO: Need to verify how to get cup round information
-        cup_round = match.get('cup_round', 0)
+        cup_stage = match['round_display']
+        # Try to extract a number from the cup stage first
+        try:
+            round_num = int(''.join(filter(str.isdigit, str(cup_stage))))
+            round_weight = round_num * 0.5
+        except ValueError:
+            # If no number found, check for specific round names
+            stage_lower = str(cup_stage).lower()
+            if 'round_of_16' in stage_lower or 'last_16' in stage_lower:
+                round_weight = 3.0
+            elif 'quarterfinal' in stage_lower or 'quarter' in stage_lower:
+                round_weight = 4.0
+            elif 'semifinal' in stage_lower or 'semi' in stage_lower:
+                round_weight = 5.0
+            elif 'final' in stage_lower:
+                round_weight = 6.0
+            else:
+                round_weight = 0.5  # Default weight for unrecognized rounds
+
+        importance += round_weight
         
-        # Increase importance based on cup round
-        if cup_round > 0:
-            importance += (cup_round * 0.5)  # Later rounds are more important
-        
-        # Final match
-        if match.get('is_final', False):
-            importance += 3.0
-            
     else:  # League match
         importance = BASE_LEAGUE_IMPORTANCE
         
-        # Check if it's a derby
-        # TODO: Need a function or list to identify derby matches
-        if is_derby_match(match['home_team'], match['away_team']):
+        # Check if it's a derby by looking up teams directly
+        home_team = match['home_team']
+        away_team = match['away_team']
+        
+        # Check both orderings of teams across all competitions
+        is_derby = False
+        for derby_list in DERBIES.values():
+            for team1, team2 in derby_list:
+                if (home_team == team1 and away_team == team2) or \
+                   (home_team == team2 and away_team == team1):
+                    is_derby = True
+                    break
+            if is_derby:
+                break
+        
+        if is_derby:
             importance += DERBY_BONUS
         
         # Position proximity bonus (closer positions = more important)
-        if home_pos and away_pos:  # Only if both positions are available
-            position_diff = abs(home_pos - away_pos)
-            position_bonus = max(0, POSITION_PROXIMITY_MAX_BONUS * (1 - (position_diff / 10)))
+        if home_pos and away_pos and (home_pos <= 6 or away_pos <= 6):
+            position_bonus = max(0, POSITION_PROXIMITY_MAX_BONUS * (1 - (max(home_pos, away_pos) / 10)))
+            position_bonus *= 1.25  # 25% bonus for matches between top teams
             importance += position_bonus
         
         # Points proximity bonus
@@ -430,7 +463,6 @@ def calculate_match_importance(conn, match):
             importance += points_bonus
         
         # Check if it's late in the season (more than 70% complete)
-        # TODO: Need to verify total matches in season (usually 38 in top leagues)
         TOTAL_SEASON_MATCHES = 38
         is_late_season = matches_played > (TOTAL_SEASON_MATCHES * 0.7)
         
@@ -440,10 +472,18 @@ def calculate_match_importance(conn, match):
                 importance += TITLE_RACE_BONUS
             
             # Relegation battle check (teams near bottom)
-            # TODO: Need to verify number of teams in league to determine relegation zone
+            #TODO: Make this dynamic
             TEAMS_IN_LEAGUE = 20
             relegation_zone = TEAMS_IN_LEAGUE - 3
             if (home_pos and home_pos >= relegation_zone) or (away_pos and away_pos >= relegation_zone):
                 importance += RELEGATION_BATTLE_BONUS
+        
+        # Late season importance multipliers
+        if matches_played > (TOTAL_SEASON_MATCHES * 0.9):  # Final stretch
+            TITLE_RACE_BONUS *= 1.5
+            RELEGATION_BATTLE_BONUS *= 1.5
+        elif matches_played > (TOTAL_SEASON_MATCHES * 0.8):  # Very late
+            TITLE_RACE_BONUS *= 1.25
+            RELEGATION_BATTLE_BONUS *= 1.25
     
-    return round(importance, 2)
+    return (round(importance, 2))
