@@ -3,7 +3,6 @@ import sqlite3
 import pandas as pd
 import numpy as np
 
-from match_helpers import get_previous_matches
 from constants import DERBIES
 
 #Need to implement: 

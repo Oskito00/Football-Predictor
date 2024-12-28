@@ -10,7 +10,7 @@ from constants import (
     STATS_CHECK_QUERY,
     DEBUG_ENDED_MATCHES_QUERY
 )
-from team_stats import add_points_for_team, add_team_stats, calculate_match_importance, calculate_form, get_league_positions, get_team_points, initialize_database, get_previous_matches
+from team_processing import add_points_for_team, add_team_stats, calculate_match_importance, calculate_form, get_league_positions, get_team_points, initialize_database, get_previous_matches
 
 
 def create_training_data(db_path, output_dir, debug_mode=False):
