@@ -57,10 +57,9 @@ def create_training_data(db_path, output_dir, debug_mode=False):
         for idx, match in matches_df.iterrows():
             try:
                 if debug_mode:
-                    average_home_stats, average_away_stats = calculate_form(conn, match)
-                    print(f"Average home stats: {average_home_stats}")
-                    print(f"Average away stats: {average_away_stats}")
                     add_team_stats(conn, match)
+                    average_home_stats, average_away_stats = calculate_form(conn, match)
+                    
                     conn.commit()
                     
                     print(f"Teams: {match['home_team']} vs {match['away_team']}")
@@ -70,8 +69,9 @@ def create_training_data(db_path, output_dir, debug_mode=False):
                     add_points_for_team(conn, match)
 
                 else:
-                    average_home_stats, average_away_stats = calculate_form(conn, match)
                     add_team_stats(conn, match)
+                    average_home_stats, average_away_stats = calculate_form(conn, match)
+                    
                     conn.commit()
 
                     print(f"Teams: {match['home_team']} vs {match['away_team']}")
@@ -160,7 +160,7 @@ def create_training_data(db_path, output_dir, debug_mode=False):
 if __name__ == "__main__":
     try:
         output_dir = 'sportradar/data/processed_data'
-        debug_mode = True  # Set to False for full processing
+        debug_mode = False  # Set to False for full processing
         basic_df, advanced_df = create_training_data('football_data.db', output_dir, debug_mode)
     except Exception as e:
         print(f"\nScript failed: {str(e)}") 

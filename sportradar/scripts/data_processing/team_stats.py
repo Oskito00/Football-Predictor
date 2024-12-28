@@ -75,83 +75,89 @@ def get_previous_matches(conn, team_name, before_match_date):
     """, (team_name, before_match_date))
     return cursor.fetchall()
 
+#TODO:Get this working so that it extracts useful form information from previous 5 matches
 def calculate_form(conn, before_match_date):
     cursor = conn.cursor()
 
     home_previous_5_matches = get_previous_matches(conn, before_match_date['home_team'], before_match_date['start_time'])
     away_previous_5_matches = get_previous_matches(conn, before_match_date['away_team'], before_match_date['start_time'])
 
+    # Initialize home stats counters
+    home_goals_scored = home_goals_conceded = home_wins = home_clean_sheets = 0
+    home_passes_successful = home_passes_total = home_shots_on_target = home_shots_total = 0
+    home_chances_created = home_tackles_successful = home_tackles_total = 0
+
+    # Initialize away stats counters  
+    away_goals_scored = away_goals_conceded = away_wins = away_clean_sheets = 0
+    away_passes_successful = away_passes_total = away_shots_on_target = away_shots_total = 0 
+    away_chances_created = away_tackles_successful = away_tackles_total = 0
     # Initialize counters
-    goals_scored = goals_conceded = wins = clean_sheets = 0
-    passes_successful = passes_total = shots_on_target = shots_total = 0
-    chances_created = tackles_successful = tackles_total = 0
 
     # Get number of available matches
     home_num_matches = len(home_previous_5_matches)  # Will be between 0 and 5
     away_num_matches = len(away_previous_5_matches)  # Will be between 0 and 5
 
     for stats in home_previous_5_matches:
-        goals_scored += stats['goals_scored']
-        goals_conceded += stats['goals_conceded']
-        wins += stats['wins']
-        clean_sheets += stats['clean_sheets']
-        passes_successful += stats['passes_successful']
-        passes_total += stats['passes_total']
-        shots_on_target += stats['shots_on_target']
-        shots_total += stats['shots_total']
-        chances_created += stats['chances_created']
-        tackles_successful += stats['tackles_successful']
-        tackles_total += stats['tackles_total']
+        home_goals_scored += stats[6] if stats[6] is not None else 0
+        home_goals_conceded += stats[7] if stats[7] is not None else 0
+        home_wins += 1 if stats[8] == 'win' else 0
+        home_clean_sheets += 1 if stats[9] == 1 else 0
+        home_passes_successful += stats[10] if stats[10] is not None else 0
+        home_passes_total += stats[11] if stats[11] is not None else 0
+        home_shots_on_target += stats[12] if stats[12] is not None else 0
+        home_shots_total += stats[13] if stats[13] is not None else 0
+        home_tackles_successful += stats[14] if stats[14] is not None else 0
+        home_tackles_total += stats[15] if stats[15] is not None else 0
+        home_chances_created += stats[16] if stats[16] is not None else 0
     
     home_divisor = max(1, min(5, home_num_matches))
     away_divisor = max(1, min(5, away_num_matches))
-
     
     home_metrics = {
-        'average_goals_scored': goals_scored / home_divisor,
-        'average_goals_conceded': goals_conceded / home_divisor,
-        'average_win_rate': wins / home_divisor,
-        'average_clean_sheets': clean_sheets / home_divisor,
-        'average_passes_successful': passes_successful / home_divisor,
-        'average_passes_total': passes_total / home_divisor,
-        'average_shots_on_target': shots_on_target / home_divisor,
-        'average_shots_total': shots_total / home_divisor,
-        'average_chances_created': chances_created / home_divisor,
-        'average_tackles_successful': tackles_successful / home_divisor,
-        'average_tackles_total': tackles_total / home_divisor
+        'average_goals_scored': home_goals_scored / home_divisor,
+        'average_goals_conceded': home_goals_conceded / home_divisor,
+        'average_win_rate': home_wins / home_divisor,
+        'average_clean_sheets': home_clean_sheets / home_divisor,
+        'average_passes_successful': home_passes_successful / home_divisor,
+        'average_passes_total': home_passes_total / home_divisor,
+        'average_shots_on_target': home_shots_on_target / home_divisor,
+        'average_shots_total': home_shots_total / home_divisor,
+        'average_chances_created': home_chances_created / home_divisor,
+        'average_tackles_successful': home_tackles_successful / home_divisor,
+        'average_tackles_total': home_tackles_total / home_divisor
     }
 
     for stats in away_previous_5_matches:
-        goals_scored += stats['goals_scored']
-        goals_conceded += stats['goals_conceded']
-        wins += stats['wins']
-        clean_sheets += stats['clean_sheets']
-        passes_successful += stats['passes_successful']
-        passes_total += stats['passes_total']
-        shots_on_target += stats['shots_on_target']
-        shots_total += stats['shots_total']
-        chances_created += stats['chances_created']
-        tackles_successful += stats['tackles_successful']
-        tackles_total += stats['tackles_total']
+        away_goals_scored += stats[6] if stats[6] is not None else 0
+        away_goals_conceded += stats[7] if stats[7] is not None else 0
+        away_wins += 1 if stats[8] == 'win' else 0
+        away_clean_sheets += 1 if stats[9] == 1 else 0
+        away_passes_successful += stats[10] if stats[10] is not None else 0
+        away_passes_total += stats[11] if stats[11] is not None else 0
+        away_shots_on_target += stats[12] if stats[12] is not None else 0
+        away_shots_total += stats[13] if stats[13] is not None else 0
+        away_tackles_successful += stats[14] if stats[14] is not None else 0
+        away_tackles_total += stats[15] if stats[15] is not None else 0
+        away_chances_created += stats[16] if stats[16] is not None else 0
 
-    away_average_goals_scored = goals_scored / away_divisor
-    away_average_goals_conceded = goals_conceded / away_divisor
-    away_average_win_rate = wins / away_divisor
-    away_average_clean_sheets = clean_sheets / away_divisor
-    away_average_passes_successful = passes_successful / away_divisor
-    away_average_passes_total = passes_total / away_divisor
-    away_average_shots_on_target = shots_on_target / away_divisor
-    away_average_shots_total = shots_total / away_divisor
-    away_average_chances_created = chances_created / away_divisor
-    away_average_tackles_successful = tackles_successful / away_divisor
-    away_average_tackles_total = tackles_total / away_divisor
+    away_average_goals_scored = away_goals_scored / away_divisor
+    away_average_goals_conceded = away_goals_conceded / away_divisor
+    away_average_win_rate = away_wins / away_divisor
+    away_average_clean_sheets = away_clean_sheets / away_divisor
+    away_average_passes_successful = away_passes_successful / away_divisor
+    away_average_passes_total = away_passes_total / away_divisor
+    away_average_shots_on_target = away_shots_on_target / away_divisor
+    away_average_shots_total = away_shots_total / away_divisor
+    away_average_chances_created = away_chances_created / away_divisor
+    away_average_tackles_successful = away_tackles_successful / away_divisor
+    away_average_tackles_total = away_tackles_total / away_divisor
 
     #Final Away Metrics
     away_metrics = {'average_goals_scored': away_average_goals_scored, 'average_goals_conceded': away_average_goals_conceded, 'average_win_rate': away_average_win_rate, 'average_clean_sheets': away_average_clean_sheets, 'average_passes_successful': away_average_passes_successful, 'average_passes_total': away_average_passes_total, 'average_shots_on_target': away_average_shots_on_target, 'average_shots_total': away_average_shots_total, 'average_chances_created': away_average_chances_created, 'average_tackles_successful': away_average_tackles_successful, 'average_tackles_total': away_average_tackles_total}
     return home_metrics, away_metrics
 def add_team_stats(conn, match):
     cursor = conn.cursor()
-
+    
     try:
         # Map the expected column names to what's in your database
         home_stats = {
@@ -221,6 +227,8 @@ def add_team_stats(conn, match):
                 :chances_created, :tackles_successful, :tackles_total
             )
         """, away_stats)
+
+        print("Added team stats to database")
 
         conn.commit()        
     except Exception as e:
