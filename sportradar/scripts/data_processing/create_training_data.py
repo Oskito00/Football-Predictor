@@ -10,7 +10,7 @@ from constants import (
     STATS_CHECK_QUERY,
     DEBUG_ENDED_MATCHES_QUERY
 )
-from team_stats import add_points_for_team, add_team_stats, calculate_match_importance, calculate_stats_averages, get_league_positions, initialize_database, get_previous_matches
+from team_stats import add_points_for_team, add_team_stats, calculate_match_importance, calculate_form, get_league_positions, get_team_points, initialize_database, get_previous_matches
 
 
 def create_training_data(db_path, output_dir, debug_mode=False):
@@ -57,25 +57,30 @@ def create_training_data(db_path, output_dir, debug_mode=False):
         for idx, match in matches_df.iterrows():
             try:
                 if debug_mode:
+                    average_home_stats, average_away_stats = calculate_form(conn, match)
+                    print(f"Average home stats: {average_home_stats}")
+                    print(f"Average away stats: {average_away_stats}")
                     add_team_stats(conn, match)
                     conn.commit()
                     
                     print(f"Teams: {match['home_team']} vs {match['away_team']}")
-                    #TODO: Get recent form stats averages
-
+                    print("Match time: ", match['start_time'])
+                    
                     match_importance = calculate_match_importance(conn, match)
-                    print(f"Match importance: {match_importance}")
-                          
+                    add_points_for_team(conn, match)
+
                 else:
+                    average_home_stats, average_away_stats = calculate_form(conn, match)
                     add_team_stats(conn, match)
                     conn.commit()
-                    #TODO: Get recent form stats averages
 
                     print(f"Teams: {match['home_team']} vs {match['away_team']}")
                     print("Match time: ", match['start_time'])
 
                     match_importance = calculate_match_importance(conn, match)
-                    print(f"Match importance: {match_importance}")
+                    add_points_for_team(conn, match)
+
+
 
 
 
@@ -127,22 +132,22 @@ def create_training_data(db_path, output_dir, debug_mode=False):
                     raise  # In debug mode, raise the exception for detailed traceback
                 continue
         
-        # Save datasets
-        basic_df = pd.DataFrame(basic_data)
-        advanced_df = pd.DataFrame(advanced_data)
+        # # Save datasets
+        # basic_df = pd.DataFrame(basic_data)
+        # advanced_df = pd.DataFrame(advanced_data)
         
-        # Add debug suffix to filenames in debug mode
-        suffix = '_debug' if debug_mode else ''
-        basic_output = os.path.join(output_dir, f'training_data_basic{suffix}.csv')
-        advanced_output = os.path.join(output_dir, f'training_data_advanced{suffix}.csv')
+        # # Add debug suffix to filenames in debug mode
+        # suffix = '_debug' if debug_mode else ''
+        # basic_output = os.path.join(output_dir, f'training_data_basic{suffix}.csv')
+        # advanced_output = os.path.join(output_dir, f'training_data_advanced{suffix}.csv')
         
-        basic_df.to_csv(basic_output, index=False)
-        advanced_df.to_csv(advanced_output, index=False)
+        # basic_df.to_csv(basic_output, index=False)
+        # advanced_df.to_csv(advanced_output, index=False)
         
-        print(f"\nSaved basic dataset with {len(basic_df)} matches to {basic_output}")
-        print(f"Saved advanced dataset with {len(advanced_df)} matches to {advanced_output}")
+        # print(f"\nSaved basic dataset with {len(basic_df)} matches to {basic_output}")
+        # print(f"Saved advanced dataset with {len(advanced_df)} matches to {advanced_output}")
         
-        return basic_df, advanced_df
+        # return basic_df, advanced_df
         
     except Exception as e:
         print(f"\nFatal error: {str(e)}")
@@ -155,7 +160,7 @@ def create_training_data(db_path, output_dir, debug_mode=False):
 if __name__ == "__main__":
     try:
         output_dir = 'sportradar/data/processed_data'
-        debug_mode = False  # Set to False for full processing
+        debug_mode = True  # Set to False for full processing
         basic_df, advanced_df = create_training_data('football_data.db', output_dir, debug_mode)
     except Exception as e:
         print(f"\nScript failed: {str(e)}") 

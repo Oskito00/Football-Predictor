@@ -75,11 +75,11 @@ def get_previous_matches(conn, team_name, before_match_date):
     """, (team_name, before_match_date))
     return cursor.fetchall()
 
-def calculate_stats_averages(conn, before_match_date):
+def calculate_form(conn, before_match_date):
     cursor = conn.cursor()
 
-    home_team_stats = get_previous_matches(conn, before_match_date['home_team'], before_match_date['start_time'])
-    away_team_stats = get_previous_matches(conn, before_match_date['away_team'], before_match_date['start_time'])
+    home_previous_5_matches = get_previous_matches(conn, before_match_date['home_team'], before_match_date['start_time'])
+    away_previous_5_matches = get_previous_matches(conn, before_match_date['away_team'], before_match_date['start_time'])
 
     # Initialize counters
     goals_scored = goals_conceded = wins = clean_sheets = 0
@@ -87,10 +87,10 @@ def calculate_stats_averages(conn, before_match_date):
     chances_created = tackles_successful = tackles_total = 0
 
     # Get number of available matches
-    home_num_matches = len(home_team_stats)  # Will be between 0 and 5
-    away_num_matches = len(away_team_stats)  # Will be between 0 and 5
+    home_num_matches = len(home_previous_5_matches)  # Will be between 0 and 5
+    away_num_matches = len(away_previous_5_matches)  # Will be between 0 and 5
 
-    for stats in home_team_stats:
+    for stats in home_previous_5_matches:
         goals_scored += stats['goals_scored']
         goals_conceded += stats['goals_conceded']
         wins += stats['wins']
@@ -121,7 +121,7 @@ def calculate_stats_averages(conn, before_match_date):
         'average_tackles_total': tackles_total / home_divisor
     }
 
-    for stats in away_team_stats:
+    for stats in away_previous_5_matches:
         goals_scored += stats['goals_scored']
         goals_conceded += stats['goals_conceded']
         wins += stats['wins']
@@ -151,9 +151,7 @@ def calculate_stats_averages(conn, before_match_date):
     return home_metrics, away_metrics
 def add_team_stats(conn, match):
     cursor = conn.cursor()
-    
-    # Debug print
-    
+
     try:
         # Map the expected column names to what's in your database
         home_stats = {
@@ -303,12 +301,48 @@ def add_points_for_team(conn, match):
 
         conn.commit()
 
-        return home_points, away_points
-
     except Exception as e:
         print(f"Error updating points: {str(e)}")
         conn.rollback()
         raise
+
+def get_team_points(conn, match):
+    """Get current points for both teams in the match for their current season"""
+    cursor = conn.cursor()
+    
+    try:
+        # Query points for both teams in one go
+        cursor.execute("""
+            SELECT team_name, points, matches_played
+            FROM season_points
+            WHERE team_name IN (?, ?)
+            AND season_id = ?
+            AND competition_id = ?
+        """, (
+            match['home_team'],
+            match['away_team'],
+            match['season_id'],
+            match['competition_id']
+        ))
+        
+        results = cursor.fetchall()
+        
+        # Initialize default values
+        home_points = 0
+        away_points = 0
+        
+        # Process results
+        for team, points, matches in results:
+            if team == match['home_team']:
+                home_points = points
+            elif team == match['away_team']:
+                away_points = points
+                
+        return home_points, away_points
+
+    except Exception as e:
+        print(f"Error getting team points: {str(e)}")
+        return 0, 0  # Return default values if there's an error
 
 def get_league_positions(conn, match):
     """Get current league positions for both teams in the match"""
@@ -362,10 +396,10 @@ def get_league_positions(conn, match):
         'away': positions.get(match['away_team'], {'position': None, 'points': 0, 'matches_played': 0})
     }
 
+#TODO: Implement more features
 def calculate_match_importance(conn, match):
     """Calculate the importance of a match based on various factors"""
     
-    # TODO: Need to verify these constants are appropriate
     BASE_LEAGUE_IMPORTANCE = 5.0
     BASE_CUP_IMPORTANCE = 5.5
     DERBY_BONUS = 2.0
@@ -375,8 +409,8 @@ def calculate_match_importance(conn, match):
     POINTS_PROXIMITY_MAX_BONUS = 1.5
 
     CUP_IMPORTANCE = {
-    'UEFA Champions League': 7.0,
-    'UEFA Europa League': 6.0,
+    'UEFA Champions League': 6.0,
+    'UEFA Europa League': 5.5,
     'UEFA Conference League': 5.5,
     'FA Cup': 6.0,
     'EFL Cup': 5.5,
@@ -388,17 +422,16 @@ def calculate_match_importance(conn, match):
     importance = 0.0
     
     # Get current league positions and points
-    home_points, away_points = add_points_for_team(conn, match)
+    home_points, away_points = get_team_points(conn, match)
     positions = get_league_positions(conn, match)
     home_pos = positions['home']['position']
     away_pos = positions['away']['position']
-    print(f"Home position: {home_pos}")
-    print(f"Away position: {away_pos}")
+
     matches_played = max(positions['home']['matches_played'], 
                         positions['away']['matches_played'])
     
-    # TODO: Need a way to identify if it's a cup match
     is_cup_match = match['competition_type'] == 'cup'
+
     
     if is_cup_match:
         importance = BASE_CUP_IMPORTANCE
@@ -407,7 +440,6 @@ def calculate_match_importance(conn, match):
         if cup_name in CUP_IMPORTANCE:
             importance = CUP_IMPORTANCE[cup_name]
         
-        # TODO: Need to verify how to get cup round information
         cup_stage = match['round_display']
         # Try to extract a number from the cup stage first
         try:
@@ -448,6 +480,7 @@ def calculate_match_importance(conn, match):
                 break
         
         if is_derby:
+            print(f"Derby match bonus: +{DERBY_BONUS}")
             importance += DERBY_BONUS
         
         # Position proximity bonus (closer positions = more important)
@@ -461,23 +494,19 @@ def calculate_match_importance(conn, match):
             points_diff = abs(home_points - away_points)
             points_bonus = max(0, POINTS_PROXIMITY_MAX_BONUS * (1 - (points_diff / 9)))
             importance += points_bonus
-        
         # Check if it's late in the season (more than 70% complete)
         TOTAL_SEASON_MATCHES = 38
         is_late_season = matches_played > (TOTAL_SEASON_MATCHES * 0.7)
-        
         if is_late_season:
             # Title race check (teams near top of table)
             if (home_pos and home_pos <= 3) or (away_pos and away_pos <= 3):
                 importance += TITLE_RACE_BONUS
-            
             # Relegation battle check (teams near bottom)
             #TODO: Make this dynamic
             TEAMS_IN_LEAGUE = 20
             relegation_zone = TEAMS_IN_LEAGUE - 3
             if (home_pos and home_pos >= relegation_zone) or (away_pos and away_pos >= relegation_zone):
                 importance += RELEGATION_BATTLE_BONUS
-        
         # Late season importance multipliers
         if matches_played > (TOTAL_SEASON_MATCHES * 0.9):  # Final stretch
             TITLE_RACE_BONUS *= 1.5
