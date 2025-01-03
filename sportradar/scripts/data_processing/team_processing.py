@@ -40,6 +40,10 @@ def initialize_database(conn):
         chances_created INTEGER,
         tackles_successful INTEGER,
         tackles_total INTEGER,
+                   
+        --Stats check flags
+        has_basic_stats BOOLEAN DEFAULT 0,
+        has_advanced_stats BOOLEAN DEFAULT 0,
         
         PRIMARY KEY (team_name, start_time)
     )''')
@@ -64,101 +68,178 @@ def initialize_database(conn):
 def get_previous_matches(conn, team_name, before_match_date):
     cursor = conn.cursor()
     cursor.execute("""
-        SELECT *
+        SELECT 
+            team_name,
+            start_time,
+            season_id,
+            competition_id,
+            match_id,
+            match_status,
+            goals_scored,
+            goals_conceded,
+            match_outcome,
+            clean_sheet,
+            passes_successful,
+            passes_total,
+            shots_on_target,
+            shots_total,
+            chances_created,
+            tackles_successful,
+            tackles_total,
+            has_basic_stats,
+            has_advanced_stats
         FROM team_running_stats 
         WHERE team_name = ?
         AND start_time < ?
+        AND has_basic_stats = 1
         AND match_status = 'ended'
         ORDER BY start_time DESC
         LIMIT 5
     """, (team_name, before_match_date))
-    return cursor.fetchall()
+    
+    # Convert tuple results to dictionaries with named fields
+    columns = [description[0] for description in cursor.description]
+    return [dict(zip(columns, row)) for row in cursor.fetchall()]
 
-#TODO:Get this working so that it extracts useful form information from previous 5 matches
+
 def calculate_form(conn, before_match_date):
     cursor = conn.cursor()
 
     home_previous_5_matches = get_previous_matches(conn, before_match_date['home_team'], before_match_date['start_time'])
     away_previous_5_matches = get_previous_matches(conn, before_match_date['away_team'], before_match_date['start_time'])
 
-    # Initialize home stats counters
-    home_goals_scored = home_goals_conceded = home_wins = home_clean_sheets = 0
-    home_passes_successful = home_passes_total = home_shots_on_target = home_shots_total = 0
-    home_chances_created = home_tackles_successful = home_tackles_total = 0
-
-    # Initialize away stats counters  
-    away_goals_scored = away_goals_conceded = away_wins = away_clean_sheets = 0
-    away_passes_successful = away_passes_total = away_shots_on_target = away_shots_total = 0 
-    away_chances_created = away_tackles_successful = away_tackles_total = 0
-    # Initialize counters
-
-    # Get number of available matches
-    home_num_matches = len(home_previous_5_matches)  # Will be between 0 and 5
-    away_num_matches = len(away_previous_5_matches)  # Will be between 0 and 5
-
-    for stats in home_previous_5_matches:
-        home_goals_scored += stats[6] if stats[6] is not None else 0
-        home_goals_conceded += stats[7] if stats[7] is not None else 0
-        home_wins += 1 if stats[8] == 'win' else 0
-        home_clean_sheets += 1 if stats[9] == 1 else 0
-        home_passes_successful += stats[10] if stats[10] is not None else 0
-        home_passes_total += stats[11] if stats[11] is not None else 0
-        home_shots_on_target += stats[12] if stats[12] is not None else 0
-        home_shots_total += stats[13] if stats[13] is not None else 0
-        home_tackles_successful += stats[14] if stats[14] is not None else 0
-        home_tackles_total += stats[15] if stats[15] is not None else 0
-        home_chances_created += stats[16] if stats[16] is not None else 0
-    
-    home_divisor = max(1, min(5, home_num_matches))
-    away_divisor = max(1, min(5, away_num_matches))
-    
-    home_metrics = {
-        'average_goals_scored': home_goals_scored / home_divisor,
-        'average_goals_conceded': home_goals_conceded / home_divisor,
-        'average_win_rate': home_wins / home_divisor,
-        'average_clean_sheets': home_clean_sheets / home_divisor,
-        'average_passes_successful': home_passes_successful / home_divisor,
-        'average_passes_total': home_passes_total / home_divisor,
-        'average_shots_on_target': home_shots_on_target / home_divisor,
-        'average_shots_total': home_shots_total / home_divisor,
-        'average_chances_created': home_chances_created / home_divisor,
-        'average_tackles_successful': home_tackles_successful / home_divisor,
-        'average_tackles_total': home_tackles_total / home_divisor
+    # Define stats to track and their initial values
+    stat_definitions = {
+        'goals_scored': {'sum': 0, 'divisor': 0},
+        'goals_conceded': {'sum': 0, 'divisor': 0},
+        'wins': {'sum': 0, 'divisor': 0},
+        'clean_sheets': {'sum': 0, 'divisor': 0},
+        'passes_successful': {'sum': 0, 'divisor': 0},
+        'passes_total': {'sum': 0, 'divisor': 0},
+        'shots_on_target': {'sum': 0, 'divisor': 0},
+        'shots_total': {'sum': 0, 'divisor': 0},
+        'tackles_successful': {'sum': 0, 'divisor': 0},
+        'tackles_total': {'sum': 0, 'divisor': 0},
+        'chances_created': {'sum': 0, 'divisor': 0}
     }
 
-    for stats in away_previous_5_matches:
-        away_goals_scored += stats[6] if stats[6] is not None else 0
-        away_goals_conceded += stats[7] if stats[7] is not None else 0
-        away_wins += 1 if stats[8] == 'win' else 0
-        away_clean_sheets += 1 if stats[9] == 1 else 0
-        away_passes_successful += stats[10] if stats[10] is not None else 0
-        away_passes_total += stats[11] if stats[11] is not None else 0
-        away_shots_on_target += stats[12] if stats[12] is not None else 0
-        away_shots_total += stats[13] if stats[13] is not None else 0
-        away_tackles_successful += stats[14] if stats[14] is not None else 0
-        away_tackles_total += stats[15] if stats[15] is not None else 0
-        away_chances_created += stats[16] if stats[16] is not None else 0
+    # Initialize stats for both teams
+    home_stats = {stat: dict(values) for stat, values in stat_definitions.items()}
+    away_stats = {stat: dict(values) for stat, values in stat_definitions.items()}
 
-    away_average_goals_scored = away_goals_scored / away_divisor
-    away_average_goals_conceded = away_goals_conceded / away_divisor
-    away_average_win_rate = away_wins / away_divisor
-    away_average_clean_sheets = away_clean_sheets / away_divisor
-    away_average_passes_successful = away_passes_successful / away_divisor
-    away_average_passes_total = away_passes_total / away_divisor
-    away_average_shots_on_target = away_shots_on_target / away_divisor
-    away_average_shots_total = away_shots_total / away_divisor
-    away_average_chances_created = away_chances_created / away_divisor
-    away_average_tackles_successful = away_tackles_successful / away_divisor
-    away_average_tackles_total = away_tackles_total / away_divisor
+    advanced_stat_requirements = {
+        'pass_effectiveness': ['passes_successful', 'passes_total'],
+        'shot_accuracy': ['shots_on_target', 'shots_total'],
+        'conversion_rate': ['goals_scored', 'shots_on_target'],
+        'defensive_success': ['tackles_successful', 'tackles_total']
+    }
 
-    #Final Away Metrics
-    away_metrics = {'average_goals_scored': away_average_goals_scored, 'average_goals_conceded': away_average_goals_conceded, 'average_win_rate': away_average_win_rate, 'average_clean_sheets': away_average_clean_sheets, 'average_passes_successful': away_average_passes_successful, 'average_passes_total': away_average_passes_total, 'average_shots_on_target': away_average_shots_on_target, 'average_shots_total': away_average_shots_total, 'average_chances_created': away_average_chances_created, 'average_tackles_successful': away_average_tackles_successful, 'average_tackles_total': away_average_tackles_total}
+    # Process home team stats
+    for match in home_previous_5_matches:
+        for stat in home_stats:
+            if stat == 'wins':
+                value = 1 if match['match_outcome'] == 'win' else 0
+            elif stat == 'clean_sheets':
+                # Clean sheet for home team when away_goals is 0
+                value = 1 if match.get('goals_conceded') == 0 else 0
+            else:
+                value = match.get(stat)
+            
+            if value is not None:
+                home_stats[stat]['sum'] += value
+                home_stats[stat]['divisor'] += 1
+
+    # Process away team stats
+    for match in away_previous_5_matches:
+        for stat in away_stats:
+            if stat == 'wins':
+                value = 1 if match['match_outcome'] == 'win' else 0
+            elif stat == 'clean_sheets':
+                # Clean sheet for home team when away_goals is 0
+                value = 1 if match.get('goals_conceded') == 0 else 0
+            else:
+                value = match.get(stat)
+            
+            if value is not None:
+                away_stats[stat]['sum'] += value
+                away_stats[stat]['divisor'] += 1
+
+    # Check if we have enough data for advanced stats (at least 2 matches worth of data for each metric)
+    def has_enough_advanced_stats(stats):
+        """
+        Check if there's enough data for advanced stats calculations.
+        Debug version with print statements.
+        """
+        print("\nChecking advanced stats availability:")
+        for metric, required_stats in advanced_stat_requirements.items():
+            print(f"\nChecking {metric}:")
+            for stat in required_stats:
+                print(f"  {stat}: {stats[stat]['divisor']} matches, sum: {stats[stat]['sum']}")
+            
+            min_matches = min(stats[stat]['divisor'] for stat in required_stats)
+            print(f"  Minimum matches for {metric}: {min_matches}")
+            
+            if min_matches < 2:
+                print(f"  Failed: {metric} has insufficient matches")
+                return False
+            
+            # Check ratio pairs
+            if metric == 'pass_effectiveness':
+                if stats['passes_successful']['divisor'] != stats['passes_total']['divisor']:
+                    print("  Failed: pass effectiveness divisors don't match")
+                    return False
+            elif metric == 'shot_accuracy':
+                if stats['shots_on_target']['divisor'] != stats['shots_total']['divisor']:
+                    print("  Failed: shot accuracy divisors don't match")
+                    return False
+            elif metric == 'conversion_rate':
+                if stats['goals_scored']['divisor'] != stats['shots_on_target']['divisor']:
+                    print("  Failed: conversion rate divisors don't match")
+                    return False
+            elif metric == 'defensive_success':
+                if stats['tackles_successful']['divisor'] != stats['tackles_total']['divisor']:
+                    print("  Failed: defensive success divisors don't match")
+                    return False
+        
+        print("\nAll advanced stats requirements met!")
+        return True
+    
+    print(f"\nProcessing match for {before_match_date['home_team']} vs {before_match_date['away_team']}")
+
+    # Set has_advanced_stats flag based on data availability
+    home_stats['has_advanced_stats'] = 1 if has_enough_advanced_stats(home_stats) else 0
+    away_stats['has_advanced_stats'] = 1 if has_enough_advanced_stats(away_stats) else 0
+
+    home_metrics = calculate_metrics(home_stats)
+    away_metrics = calculate_metrics(away_stats)
+
     return home_metrics, away_metrics
+
 def add_team_stats(conn, match):
     cursor = conn.cursor()
     
     try:
+        import numpy as np
+
+        # Function to check if basic stats are present
+        def has_basic_stats(stats):
+            basic_fields = ['team_name', 'start_time', 'season_id', 'competition_id', 
+                          'match_id', 'goals_scored', 'goals_conceded']
+            return all(stats.get(field) is not None 
+                     and not (isinstance(stats.get(field), float) and np.isnan(stats.get(field)))
+                     for field in basic_fields)
+
+        # Function to check if advanced stats are present
+        def has_advanced_stats(stats):
+            advanced_fields = ['passes_successful', 'passes_total', 'shots_on_target',
+                             'shots_total', 'chances_created', 'tackles_successful', 
+                             'tackles_total']
+            return all(stats.get(field) is not None 
+                      and not (isinstance(stats.get(field), float) and np.isnan(stats.get(field)))
+                      for field in advanced_fields)
+
         # Map the expected column names to what's in your database
+
         home_stats = {
             'team_name': match['home_team'],
             'start_time': match['start_time'],
@@ -178,6 +259,10 @@ def add_team_stats(conn, match):
             'tackles_successful': match.get('home_tackles_successful'),
             'tackles_total': match.get('home_tackles_total')
         }
+
+        # Add the stats check flags
+        home_stats['has_basic_stats'] = has_basic_stats(home_stats)
+        home_stats['has_advanced_stats'] = has_advanced_stats(home_stats)
 
         away_stats = {
             'team_name': match['away_team'],
@@ -199,35 +284,27 @@ def add_team_stats(conn, match):
             'tackles_total': match.get('away_tackles_total')
         }
 
-        cursor.execute("""
+        away_stats['has_basic_stats'] = has_basic_stats(away_stats)
+        away_stats['has_advanced_stats'] = has_advanced_stats(away_stats)
+
+        insert_query = """
             INSERT INTO team_running_stats (
                 team_name, start_time, season_id, competition_id, match_id,
                 match_status, goals_scored, goals_conceded, match_outcome, clean_sheet,
                 passes_successful, passes_total, shots_on_target, shots_total,
-                chances_created, tackles_successful, tackles_total
+                chances_created, tackles_successful, tackles_total,
+                has_basic_stats, has_advanced_stats
             ) VALUES (
                 :team_name, :start_time, :season_id, :competition_id, :match_id,
                 :match_status, :goals_scored, :goals_conceded, :match_outcome, :clean_sheet,
                 :passes_successful, :passes_total, :shots_on_target, :shots_total,
-                :chances_created, :tackles_successful, :tackles_total
+                :chances_created, :tackles_successful, :tackles_total,
+                :has_basic_stats, :has_advanced_stats
             )
-        """, home_stats)
+        """
 
-        cursor.execute("""
-            INSERT INTO team_running_stats (
-                team_name, start_time, season_id, competition_id, match_id,
-                match_status, goals_scored, goals_conceded, match_outcome, clean_sheet,
-                passes_successful, passes_total, shots_on_target, shots_total,
-                chances_created, tackles_successful, tackles_total
-            ) VALUES (
-                :team_name, :start_time, :season_id, :competition_id, :match_id,
-                :match_status, :goals_scored, :goals_conceded, :match_outcome, :clean_sheet,
-                :passes_successful, :passes_total, :shots_on_target, :shots_total,
-                :chances_created, :tackles_successful, :tackles_total
-            )
-        """, away_stats)
-
-        print("Added team stats to database")
+        cursor.execute(insert_query, home_stats)
+        cursor.execute(insert_query, away_stats)
 
         conn.commit()        
     except Exception as e:
@@ -523,3 +600,45 @@ def calculate_match_importance(conn, match):
             RELEGATION_BATTLE_BONUS *= 1.25
     
     return (round(importance, 2))
+
+#Helper functions
+
+#Helper function for calculate_form
+def calculate_metrics(stats):
+    if stats['has_advanced_stats'] == 1:
+        return {
+            # Basic metrics
+            'average_goals_scored': stats['goals_scored']['sum'] / max(stats['goals_scored']['divisor'], 1),
+            'average_goals_conceded': stats['goals_conceded']['sum'] / max(stats['goals_conceded']['divisor'], 1),
+            'average_win_rate': stats['wins']['sum'] / max(stats['wins']['divisor'], 1),
+            'average_clean_sheets': stats['clean_sheets']['sum'] / max(stats['clean_sheets']['divisor'], 1),
+            
+            # Advanced metrics
+            'pass_effectiveness': stats['passes_successful']['sum'] / max(stats['passes_total']['sum'], 1),
+            'shot_accuracy': stats['shots_on_target']['sum'] / max(stats['shots_total']['sum'], 1),
+            'conversion_rate': stats['goals_scored']['sum'] / max(stats['shots_on_target']['sum'], 1),
+            'defensive_success': stats['tackles_successful']['sum'] / max(stats['tackles_total']['sum'], 1),
+            'has_advanced_stats': 1
+        }
+    else:
+        return {
+            # Basic metrics only
+            'average_goals_scored': stats['goals_scored']['sum'] / max(stats['goals_scored']['divisor'], 1),
+            'average_goals_conceded': stats['goals_conceded']['sum'] / max(stats['goals_conceded']['divisor'], 1),
+            'average_win_rate': stats['wins']['sum'] / max(stats['wins']['divisor'], 1),
+            'average_clean_sheets': stats['clean_sheets']['sum'] / max(stats['clean_sheets']['divisor'], 1),
+            'has_advanced_stats': 0
+        }
+
+def get_stats_coverage(conn):
+    query = """
+        SELECT 
+            COUNT(*) as total_matches,
+            SUM(CASE WHEN has_basic_stats = 1 THEN 1 ELSE 0 END) as matches_with_basic_stats,
+            SUM(CASE WHEN has_advanced_stats = 1 THEN 1 ELSE 0 END) as matches_with_advanced_stats
+        FROM team_running_stats
+    """
+    cursor = conn.cursor()
+    result = cursor.execute(query).fetchone()
+    return result
+
