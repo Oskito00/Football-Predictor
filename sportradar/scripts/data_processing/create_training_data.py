@@ -134,7 +134,7 @@ def create_training_data(db_path, output_dir, debug_mode=False):
 if __name__ == "__main__":
     try:
         output_dir = 'sportradar/data/processed_data'
-        debug_mode = False  # Set to False for full processing
+        debug_mode = True  # Set to False for full processing
         basic_df, advanced_df = create_training_data('football_data.db', output_dir, debug_mode)
     except Exception as e:
         print(f"\nScript failed: {str(e)}") 
