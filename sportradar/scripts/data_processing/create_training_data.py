@@ -78,7 +78,10 @@ def create_training_data(db_path, output_dir, debug_mode=False):
                     'average_away_clean_sheets': average_away_stats['average_clean_sheets'],
                 }
                 if (average_home_stats.get('has_advanced_stats') == 0 and average_away_stats.get('has_advanced_stats') == 0):
+                    basic_row['home_goals'] = match['home_goals']
+                    basic_row['away_goals'] = match['away_goals']
                     basic_data.append(basic_row)
+
                 
                 # Process advanced stats if available
                 if average_home_stats.get('has_advanced_stats') == 1 and average_away_stats.get('has_advanced_stats') == 1:
@@ -134,7 +137,7 @@ def create_training_data(db_path, output_dir, debug_mode=False):
 if __name__ == "__main__":
     try:
         output_dir = 'sportradar/data/processed_data'
-        debug_mode = True  # Set to False for full processing
+        debug_mode = False  # Set to False for full processing
         basic_df, advanced_df = create_training_data('football_data.db', output_dir, debug_mode)
     except Exception as e:
         print(f"\nScript failed: {str(e)}") 
