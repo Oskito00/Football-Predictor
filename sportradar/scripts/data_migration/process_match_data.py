@@ -103,6 +103,7 @@ def create_tables(cursor):
     # Create player_stats table
     cursor.execute('''CREATE TABLE IF NOT EXISTS player_stats (
         match_id TEXT,
+        start_time TEXT,
         player_id TEXT,
         player_name TEXT,
         team_id TEXT,
@@ -337,10 +338,12 @@ def process_match_data(db_file):
                         player_id = player.get("id")
                         player_name = player.get("name")
                         starter = player.get("starter", False)
+                        start_time = match.get("start_time")
                         player_stats = player.get("statistics", {})
+                        print(player_stats)
                         
                         cursor.execute('''INSERT OR REPLACE INTO player_stats (
-                            match_id, player_id, player_name, team_id, starter,
+                            match_id, start_time, player_id, player_name, team_id, starter,
                             assists, chances_created, clearances, corner_kicks, crosses_successful,
                             crosses_total, defensive_blocks, diving_saves, dribbles_completed,
                             fouls_committed, goals_by_head, goals_by_penalty, goals_conceded,
@@ -351,9 +354,8 @@ def process_match_data(db_file):
                             shots_blocked, shots_faced_saved, shots_faced_total, shots_off_target,
                             shots_on_target, substituted_in, substituted_out, tackles_successful,
                             tackles_total, was_fouled, yellow_cards, yellow_red_cards
-                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 
-                                 ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
-                            (match_id, player_id, player_name, team_id, starter, *[player_stats.get(k) for k in [
+                        ) VALUES (?, ?,?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+                            (match_id, start_time, player_id, player_name, team_id, starter, *[player_stats.get(k) for k in [
                                 "assists", "chances_created", "clearances", "corner_kicks",
                                 "crosses_successful", "crosses_total", "defensive_blocks",
                                 "diving_saves", "dribbles_completed", "fouls_committed",

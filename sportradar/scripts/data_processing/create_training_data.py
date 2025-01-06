@@ -10,6 +10,7 @@ from constants import (
     STATS_CHECK_QUERY,
     DEBUG_ENDED_MATCHES_QUERY
 )
+from player_stats import initialize_player_database, process_match_stats
 from team_processing import add_points_for_team, add_team_stats, calculate_match_importance, calculate_form, get_league_positions, get_stats_coverage, get_team_points, initialize_database, get_previous_matches
 
 
@@ -31,6 +32,8 @@ def create_training_data(db_path, output_dir, debug_mode=False):
         print("Successfully connected to database")
         print("Initializing database...")
         initialize_database(conn)
+        initialize_player_database(conn)
+        print("Database initialization complete")
 
         # Get completed matches
         print("\nFetching completed matches...")
@@ -59,6 +62,17 @@ def create_training_data(db_path, output_dir, debug_mode=False):
                 # Calculate match importance and update points
                 match_importance = calculate_match_importance(conn, match)
                 add_points_for_team(conn, match)
+
+                # NEW: Process player stats for this match
+                try:
+                    processed_players = process_match_stats(conn, match['fixture_id'])
+                    print(f"Processed {processed_players} players for match {match['fixture_id']}")
+                except ValueError as e:
+                    print(f"Skipping player stats for match {match['fixture_id']}: {str(e)}")
+                except Exception as e:
+                    print(f"Error processing player stats for match {match['fixture_id']}: {str(e)}")
+                    if debug_mode:
+                        raise
 
                 # Create basic row data
                 basic_row = {
@@ -137,7 +151,7 @@ def create_training_data(db_path, output_dir, debug_mode=False):
 if __name__ == "__main__":
     try:
         output_dir = 'sportradar/data/processed_data'
-        debug_mode = False  # Set to False for full processing
+        debug_mode = True  # Set to False for full processing
         basic_df, advanced_df = create_training_data('football_data.db', output_dir, debug_mode)
     except Exception as e:
         print(f"\nScript failed: {str(e)}") 
