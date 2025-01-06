@@ -17,6 +17,7 @@ predictions/
 *.json
 football_data.db
 football.db
+*.csv
 
 
 
