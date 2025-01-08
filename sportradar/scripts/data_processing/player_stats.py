@@ -268,9 +268,17 @@ def process_match_stats(conn, fixture_id, home_team_id, away_team_id, start_time
     home_missing = get_missing_key_players(conn, fixture_id, home_team_id, start_time)
     away_missing = get_missing_key_players(conn, fixture_id, away_team_id, start_time)
     
-    # Get total key players count
-    home_key_players_total = get_key_players_count(conn, home_team_id) #TODO: Could combine into a single query
-    away_key_players_total = get_key_players_count(conn, away_team_id)
+    # Get key players info
+    home_count, home_key_players = get_key_players_count(conn, home_team_id)
+    away_count, away_key_players = get_key_players_count(conn, away_team_id)
+    
+    print(f"\nKey players for {home_team_id}:")
+    for player in home_key_players:
+        print(f"  - {player['player_name']}: Importance={player['importance']}, Form={player['form']}")
+    
+    print(f"\nKey players for {away_team_id}:")
+    for player in away_key_players:
+        print(f"  - {player['player_name']}: Importance={player['importance']}, Form={player['form']}")
     
     return {
         'processed_count': processed_count,
@@ -278,8 +286,8 @@ def process_match_stats(conn, fixture_id, home_team_id, away_team_id, start_time
         'away_team_id': away_team_id,
         'home_key_players_missing': home_missing,
         'away_key_players_missing': away_missing,
-        'home_squad_strength': home_key_players_total - len(home_missing),
-        'away_squad_strength': away_key_players_total - len(away_missing)
+        'home_squad_strength': home_count - len(home_missing),
+        'away_squad_strength': away_count - len(away_missing)
     }
 
 #Helper functions
@@ -340,18 +348,42 @@ def get_missing_key_players(conn, match_id, team_id, start_time):
     ]
 
 def get_key_players_count(conn, team_id):
-    """Get count of key players for a team"""
+    """Get count and details of key players for a team"""
     cursor = conn.cursor()
     cursor.execute("""
-        SELECT COUNT(DISTINCT prs.player_id)
-        FROM player_running_stats prs
-        JOIN player_squad_status pss ON prs.player_id = pss.player_id
-        WHERE prs.team_id = ?
-        AND pss.is_in_squad = TRUE
-        AND prs.overall_importance_score >= 15
-        AND prs.form_rating >= 15
+        WITH player_stats AS (
+            SELECT 
+                prs.player_id,
+                prs.player_name,
+                AVG(overall_importance_score) as avg_importance,
+                AVG(form_rating) as avg_form
+            FROM player_running_stats prs
+            WHERE team_id = ?
+            AND datetime(start_time) >= datetime('now', '-90 days')
+            GROUP BY player_id, player_name
+        )
+        SELECT 
+            player_id,
+            player_name,
+            ROUND(avg_importance, 2) as importance,
+            ROUND(avg_form, 2) as form
+        FROM player_stats
+        WHERE avg_importance >= 15
+        AND avg_form >= 15
+        ORDER BY avg_importance DESC
     """, (team_id,))
-    return cursor.fetchone()[0]
+    
+    players = [
+        {
+            'player_id': row[0],
+            'player_name': row[1],
+            'importance': row[2],
+            'form': row[3]
+        }
+        for row in cursor.fetchall()
+    ]
+    
+    return len(players), players
 
 def calculate_trend(scores):
     """
