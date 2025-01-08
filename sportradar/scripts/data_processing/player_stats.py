@@ -2,7 +2,6 @@ from datetime import datetime
 import json
 from typing import Dict, List, Any
 import numpy as np
-import time
 
 def initialize_player_database(conn):
     """Create necessary tables for tracking player running statistics"""
@@ -158,7 +157,6 @@ def update_player_running_stats(conn, player_stats):
     
     try:
         # Get recent scores
-        t1 = time.time()
         cursor.execute("""
             SELECT match_importance_score 
             FROM player_running_stats 
@@ -167,18 +165,14 @@ def update_player_running_stats(conn, player_stats):
             LIMIT 20
         """, (player_stats['player_id'],))
         recent_scores = [row[0] for row in cursor.fetchall()]
-        t2 = time.time()
 
         # Calculate new stats
-        t3 = time.time()
         match_importance = calculate_player_match_importance(player_stats)
         overall_importance = (sum(recent_scores) / len(recent_scores)) if recent_scores else 0
         form_rating = (sum(recent_scores[:5]) / len(recent_scores[:5])) if len(recent_scores) >= 5 else overall_importance
         trend = calculate_trend(recent_scores)
-        t4 = time.time()
 
         # Insert new record
-        t5 = time.time()
         cursor.execute("""
             INSERT INTO player_running_stats (
                 player_id, player_name, team_id, start_time, match_id,
@@ -197,17 +191,6 @@ def update_player_running_stats(conn, player_stats):
             len(recent_scores),
             trend
         ))
-        t6 = time.time()
-
-        # Print timing for first player only
-        if player_stats.get('is_first_player'):
-            print(f"\nDetailed timing for first player:")
-            print(f"  Get recent scores: {t2-t1:.3f}s")
-            print(f"  Calculate stats: {t4-t3:.3f}s")
-            print(f"  Insert record: {t6-t5:.3f}s")
-            print(f"  Total: {t6-t1:.3f}s")
-
-        return True
 
     except Exception as error:
         print(f"Error updating player {player_stats.get('player_name', 'unknown')}: {str(error)}")
@@ -260,10 +243,7 @@ def process_match_stats(conn, fixture_id, home_team_id, away_team_id, start_time
     Returns processed count and key player information
     """
     # Process all players first
-    t0 = time.time()
     player_stats_list = get_match_player_stats(conn, fixture_id)
-    t1 = time.time()
-    print(f"\nTime to get_match_player_stats: {t1-t0:.3f} seconds")
     
     if not player_stats_list:
         raise ValueError(f"No player stats found for match_id: {fixture_id}")
@@ -272,27 +252,17 @@ def process_match_stats(conn, fixture_id, home_team_id, away_team_id, start_time
     processed_count = 0
     errors = []
     
-    t2 = time.time()
     for i, player_stats in enumerate(player_stats_list):
         try:
-            t_start = time.time()
             update_player_running_stats(conn, player_stats)
-            t_end = time.time()
-            if i == 0:  # Print timing for first player only
-                print(f"Time for first player update: {t_end-t_start:.3f} seconds")
             processed_count += 1
         except Exception as error:
             errors.append(f"Error processing player {player_stats.get('player_name', 'unknown')}: {str(error)}")
-    t3 = time.time()
     
-    print(f"Time to update all {processed_count} players: {t3-t2:.3f} seconds")
-    print(f"Average time per player: {(t3-t2)/processed_count:.3f} seconds")
     
     if processed_count == 0:
         raise ValueError(f"Failed to process any players for match_id: {fixture_id}")
     
-    t4 = time.time()
-    print(f"Total processing time: {t4-t0:.3f} seconds\n")
 
     # Get missing key players for both teams using passed parameters
     home_missing = get_missing_key_players(conn, fixture_id, home_team_id, start_time)
@@ -314,7 +284,7 @@ def process_match_stats(conn, fixture_id, home_team_id, away_team_id, start_time
 
 #Helper functions
 
-def get_missing_key_players(conn, match_id, team_id, match_date):
+def get_missing_key_players(conn, match_id, team_id, start_time):
     """Get key players who didn't play in this match"""
     cursor = conn.cursor()
     
@@ -332,6 +302,7 @@ def get_missing_key_players(conn, match_id, team_id, match_date):
                 prs.player_name,
                 prs.overall_importance_score,
                 prs.form_rating,
+                prs.start_time,
                 ROW_NUMBER() OVER (
                     PARTITION BY prs.player_id 
                     ORDER BY prs.start_time DESC
@@ -341,6 +312,7 @@ def get_missing_key_players(conn, match_id, team_id, match_date):
             WHERE prs.team_id = ?
             AND prs.overall_importance_score >= 15
             AND prs.form_rating >= 15
+            AND datetime(prs.start_time) >= datetime(?, '-30 days')
         )
         SELECT 
             player_id,
@@ -355,7 +327,7 @@ def get_missing_key_players(conn, match_id, team_id, match_date):
             WHERE match_id = ? 
             AND team_id = ?
         )
-    """, (team_id, team_id, match_id, team_id))
+    """, (team_id, team_id, start_time, match_id, team_id))
     
     return [
         {

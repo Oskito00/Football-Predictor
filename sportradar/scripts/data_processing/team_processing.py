@@ -170,14 +170,8 @@ def calculate_form(conn, before_match_date):
         Check if there's enough data for advanced stats calculations.
         Debug version with print statements.
         """
-        print("\nChecking advanced stats availability:")
         for metric, required_stats in advanced_stat_requirements.items():
-            print(f"\nChecking {metric}:")
-            for stat in required_stats:
-                print(f"  {stat}: {stats[stat]['divisor']} matches, sum: {stats[stat]['sum']}")
-            
             min_matches = min(stats[stat]['divisor'] for stat in required_stats)
-            print(f"  Minimum matches for {metric}: {min_matches}")
             
             if min_matches < 2:
                 print(f"  Failed: {metric} has insufficient matches")
@@ -564,7 +558,6 @@ def calculate_match_importance(conn, match):
                 break
         
         if is_derby:
-            print(f"Derby match bonus: +{DERBY_BONUS}")
             importance += DERBY_BONUS
         
         # Position proximity bonus (closer positions = more important)
