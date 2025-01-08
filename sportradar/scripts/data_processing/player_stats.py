@@ -237,7 +237,7 @@ def update_squad_status(conn, player_stats):
         conn.rollback()
         raise
 
-def process_match_stats(conn, fixture_id, home_team_id, away_team_id, start_time):
+def process_match_stats(conn, fixture_id, home_team_id, away_team_id, start_time, home_team_name, away_team_name):
     """
     Process all players' stats for a match and update their running stats
     Returns processed count and key player information
@@ -271,14 +271,81 @@ def process_match_stats(conn, fixture_id, home_team_id, away_team_id, start_time
     # Get key players info
     home_count, home_key_players = get_key_players_count(conn, home_team_id)
     away_count, away_key_players = get_key_players_count(conn, away_team_id)
+
+    # Calculate weighted squad strengths
+    home_strength = calculate_squad_strength(home_key_players, home_missing)
+    away_strength = calculate_squad_strength(away_key_players, away_missing)
+
+    # Create detailed match log
+    match_details = {
+        'match_id': fixture_id,
+        'start_time': start_time,
+        'home_team': home_team_id,
+        'away_team': away_team_id,
+        'home_key_players': [
+            {
+                'name': p['player_name'],
+                'importance': p['importance'],
+                'form': p['form'],
+                'score': p['weighted_score']
+            } for p in home_key_players
+        ],
+        'away_key_players': [
+            {
+                'name': p['player_name'],
+                'importance': p['importance'],
+                'form': p['form'],
+                'score': p['weighted_score']
+            } for p in away_key_players
+        ],
+        'home_missing_players': [
+            {
+                'name': p['player_name'],
+                'importance': p['importance_score'],
+                'form': p['form_rating'],
+                'score': p['weighted_score']
+            } for p in home_missing
+        ],
+        'away_missing_players': [
+            {
+                'name': p['player_name'],
+                'importance': p['importance_score'],
+                'form': p['form_rating'],
+                'score': p['weighted_score']
+            } for p in away_missing
+        ],
+        'home_squad_strength': round(home_strength, 3),
+        'away_squad_strength': round(away_strength, 3)
+    }
     
-    print(f"\nKey players for {home_team_id}:")
-    for player in home_key_players:
-        print(f"  - {player['player_name']}: Importance={player['importance']}, Form={player['form']}")
-    
-    print(f"\nKey players for {away_team_id}:")
-    for player in away_key_players:
-        print(f"  - {player['player_name']}: Importance={player['importance']}, Form={player['form']}")
+    # Write to log file
+    with open('match_analysis_log.txt', 'a', encoding='utf-8') as f:
+        f.write(f"\n{'='*80}\n")
+        f.write(f"Match: {home_team_name} vs {away_team_name}\n")
+        f.write(f"Start Time: {start_time}\n")
+        f.write(f"Match ID: {fixture_id}\n\n")
+        
+        f.write("HOME TEAM KEY PLAYERS:\n")
+        for p in match_details['home_key_players']:
+            f.write(f"  - {p['name']}: Importance={p['importance']:.2f}, Form={p['form']:.2f}, Score={p['score']:.2f}\n")
+        
+        f.write("\nHOME TEAM MISSING PLAYERS:\n")
+        for p in match_details['home_missing_players']:
+            f.write(f"  - {p['name']}: Importance={p['importance']:.2f}, Form={p['form']:.2f}, Score={p['score']:.2f}\n")
+        
+        f.write("\nAWAY TEAM KEY PLAYERS:\n")
+        for p in match_details['away_key_players']:
+            f.write(f"  - {p['name']}: Importance={p['importance']:.2f}, Form={p['form']:.2f}, Score={p['score']:.2f}\n")
+        
+        f.write("\nAWAY TEAM MISSING PLAYERS:\n")
+        for p in match_details['away_missing_players']:
+            f.write(f"  - {p['name']}: Importance={p['importance']:.2f}, Form={p['form']:.2f}, Score={p['score']:.2f}\n")
+        
+        f.write(f"\nSQUAD STRENGTHS:\n")
+        f.write(f"  Home: {match_details['home_squad_strength']:.3f}\n")
+        f.write(f"  Away: {match_details['away_squad_strength']:.3f}\n")
+        
+        f.write(f"\n{'='*80}\n")
     
     return {
         'processed_count': processed_count,
@@ -286,8 +353,8 @@ def process_match_stats(conn, fixture_id, home_team_id, away_team_id, start_time
         'away_team_id': away_team_id,
         'home_key_players_missing': home_missing,
         'away_key_players_missing': away_missing,
-        'home_squad_strength': home_count - len(home_missing),
-        'away_squad_strength': away_count - len(away_missing)
+        'home_squad_strength': round(home_strength, 3),
+        'away_squad_strength': round(away_strength, 3)
     }
 
 #Helper functions
@@ -296,7 +363,6 @@ def get_missing_key_players(conn, match_id, team_id, start_time):
     """Get key players who didn't play in this match"""
     cursor = conn.cursor()
     
-    # Get current squad players with high importance scores
     cursor.execute("""
         WITH current_squad AS (
             SELECT ps.player_id, ps.player_name
@@ -310,6 +376,7 @@ def get_missing_key_players(conn, match_id, team_id, start_time):
                 prs.player_name,
                 prs.overall_importance_score,
                 prs.form_rating,
+                (prs.overall_importance_score * 0.4 + prs.form_rating * 0.6) as weighted_score,
                 prs.start_time,
                 ROW_NUMBER() OVER (
                     PARTITION BY prs.player_id 
@@ -326,7 +393,8 @@ def get_missing_key_players(conn, match_id, team_id, start_time):
             player_id,
             player_name,
             overall_importance_score,
-            form_rating
+            form_rating,
+            weighted_score
         FROM latest_stats
         WHERE rn = 1
         AND player_id NOT IN (
@@ -335,6 +403,7 @@ def get_missing_key_players(conn, match_id, team_id, start_time):
             WHERE match_id = ? 
             AND team_id = ?
         )
+        ORDER BY weighted_score DESC
     """, (team_id, team_id, start_time, match_id, team_id))
     
     return [
@@ -342,7 +411,8 @@ def get_missing_key_players(conn, match_id, team_id, start_time):
             'player_id': row[0],
             'player_name': row[1],
             'importance_score': row[2],
-            'form_rating': row[3]
+            'form_rating': row[3],
+            'weighted_score': row[4]
         }
         for row in cursor.fetchall()
     ]
@@ -356,7 +426,9 @@ def get_key_players_count(conn, team_id):
                 prs.player_id,
                 prs.player_name,
                 AVG(overall_importance_score) as avg_importance,
-                AVG(form_rating) as avg_form
+                AVG(form_rating) as avg_form,
+                -- Calculate weighted score (40% importance, 60% form)
+                (AVG(overall_importance_score) * 0.4 + AVG(form_rating) * 0.6) as weighted_score
             FROM player_running_stats prs
             WHERE team_id = ?
             AND datetime(start_time) >= datetime('now', '-90 days')
@@ -366,11 +438,12 @@ def get_key_players_count(conn, team_id):
             player_id,
             player_name,
             ROUND(avg_importance, 2) as importance,
-            ROUND(avg_form, 2) as form
+            ROUND(avg_form, 2) as form,
+            ROUND(weighted_score, 2) as weighted_score
         FROM player_stats
         WHERE avg_importance >= 15
         AND avg_form >= 15
-        ORDER BY avg_importance DESC
+        ORDER BY weighted_score DESC
     """, (team_id,))
     
     players = [
@@ -378,7 +451,8 @@ def get_key_players_count(conn, team_id):
             'player_id': row[0],
             'player_name': row[1],
             'importance': row[2],
-            'form': row[3]
+            'form': row[3],
+            'weighted_score': row[4]
         }
         for row in cursor.fetchall()
     ]
@@ -448,3 +522,38 @@ def get_match_player_stats(conn, match_id):
     except Exception as e:
         print(f"Error getting player stats for match {match_id}: {str(e)}")
         raise
+
+def calculate_squad_strength(all_key_players, missing_players):
+    """
+    Calculate squad strength based on weighted importance of available players
+    
+    Args:
+        all_key_players: List of all key players with their scores
+        missing_players: List of missing key players
+    
+    Returns:
+        float: Squad strength score between 0 and 1
+    """
+    if not all_key_players:
+        return 0.0
+        
+    # Create a set of missing player IDs for quick lookup
+    missing_ids = {p['player_id'] for p in missing_players}
+    
+    # Calculate maximum possible strength (weighted by position in ranking)
+    max_strength = 0
+    actual_strength = 0
+    
+    for i, player in enumerate(all_key_players):
+        # Weight by position (higher ranked players count more)
+        position_weight = 1 / (i + 1)  # 1st = 1.0, 2nd = 0.5, 3rd = 0.33, etc.
+        player_weight = position_weight * player['weighted_score']
+        
+        max_strength += player_weight
+        
+        # If player is available (not in missing_ids), add to actual strength
+        if player['player_id'] not in missing_ids:
+            actual_strength += player_weight
+    
+    # Return ratio of actual to maximum strength
+    return actual_strength / max_strength if max_strength > 0 else 0.0
