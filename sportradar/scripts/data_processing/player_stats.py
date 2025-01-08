@@ -271,6 +271,9 @@ def process_match_stats(conn, fixture_id, home_team_id, away_team_id, start_time
     # Get key players info
     home_count, home_key_players = get_key_players_count(conn, home_team_id, start_time)
     away_count, away_key_players = get_key_players_count(conn, away_team_id, start_time)
+
+    home_team_strength = calculate_squad_strength(home_key_players, home_missing)
+    away_team_strength = calculate_squad_strength(away_key_players, away_missing)
     
     print(f"\nKey players for {home_team_name}:")
     for player in home_key_players:
@@ -294,8 +297,8 @@ def process_match_stats(conn, fixture_id, home_team_id, away_team_id, start_time
         'away_team_id': away_team_id,
         'home_key_players_missing': home_missing,
         'away_key_players_missing': away_missing,
-        'home_squad_strength': 0,
-        'away_squad_strength': 0
+        'home_squad_strength': home_team_strength,
+        'away_squad_strength': away_team_strength
     }
 
 #Helper functions
@@ -304,6 +307,7 @@ def get_missing_key_players(conn, match_id, team_id, start_time):
     """Get key players who didn't play in this match"""
     cursor = conn.cursor()
     
+    # Get current squad players with high importance scores
     cursor.execute("""
         WITH current_squad AS (
             SELECT ps.player_id, ps.player_name
@@ -317,7 +321,6 @@ def get_missing_key_players(conn, match_id, team_id, start_time):
                 prs.player_name,
                 prs.overall_importance_score,
                 prs.form_rating,
-                (prs.overall_importance_score * 0.4 + prs.form_rating * 0.6) as weighted_score,
                 prs.start_time,
                 ROW_NUMBER() OVER (
                     PARTITION BY prs.player_id 
@@ -334,8 +337,7 @@ def get_missing_key_players(conn, match_id, team_id, start_time):
             player_id,
             player_name,
             overall_importance_score,
-            form_rating,
-            weighted_score
+            form_rating
         FROM latest_stats
         WHERE rn = 1
         AND player_id NOT IN (
@@ -344,7 +346,6 @@ def get_missing_key_players(conn, match_id, team_id, start_time):
             WHERE match_id = ? 
             AND team_id = ?
         )
-        ORDER BY weighted_score DESC
     """, (team_id, team_id, start_time, match_id, team_id))
     
     return [
@@ -352,8 +353,7 @@ def get_missing_key_players(conn, match_id, team_id, start_time):
             'player_id': row[0],
             'player_name': row[1],
             'importance_score': row[2],
-            'form_rating': row[3],
-            'weighted_score': row[4]
+            'form_rating': row[3]
         }
         for row in cursor.fetchall()
     ]
@@ -393,8 +393,7 @@ def get_key_players_count(conn, team_id, start_time):
             'player_id': row[0],
             'player_name': row[1],
             'importance': row[2],
-            'form': row[3],
-            'weighted_score': row[4]
+            'form': row[3]
         }
         for row in cursor.fetchall()
     ]
@@ -465,37 +464,5 @@ def get_match_player_stats(conn, match_id):
         print(f"Error getting player stats for match {match_id}: {str(e)}")
         raise
 
-def calculate_squad_strength(all_key_players, missing_players):
-    """
-    Calculate squad strength based on weighted importance of available players
-    
-    Args:
-        all_key_players: List of all key players with their scores
-        missing_players: List of missing key players
-    
-    Returns:
-        float: Squad strength score between 0 and 1
-    """
-    if not all_key_players:
-        return 0.0
-        
-    # Create a set of missing player IDs for quick lookup
-    missing_ids = {p['player_id'] for p in missing_players}
-    
-    # Calculate maximum possible strength (weighted by position in ranking)
-    max_strength = 0
-    actual_strength = 0
-    
-    for i, player in enumerate(all_key_players):
-        # Weight by position (higher ranked players count more)
-        position_weight = 1 / (i + 1)  # 1st = 1.0, 2nd = 0.5, 3rd = 0.33, etc.
-        player_weight = position_weight * player['weighted_score']
-        
-        max_strength += player_weight
-        
-        # If player is available (not in missing_ids), add to actual strength
-        if player['player_id'] not in missing_ids:
-            actual_strength += player_weight
-    
-    # Return ratio of actual to maximum strength
-    return actual_strength / max_strength if max_strength > 0 else 0.0
+
+def calculate_squad_strength(key_players, missing_players):
