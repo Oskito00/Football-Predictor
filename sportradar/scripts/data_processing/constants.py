@@ -177,6 +177,8 @@ WITH numbered_matches AS (
         m.competition_phase,
         m.round_display,
         m.season_id,
+        m.home_team_id, --See if this works
+        m.away_team_id, --See if this works
         m.home_team_name as home_team,
         m.away_team_name as away_team,
         m.home_score as home_goals,
@@ -288,6 +290,8 @@ SELECT
     m.competition_phase,
     m.round_display,
     m.season_id,
+    m.home_team_id, --See if this works
+    m.away_team_id, --See if this works
     m.home_team_name as home_team,
     m.away_team_name as away_team,
     m.home_score as home_goals,
