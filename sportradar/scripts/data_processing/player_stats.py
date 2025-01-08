@@ -326,21 +326,30 @@ def get_missing_key_players(conn, match_id, team_id, match_date):
             WHERE ps.team_id = ? 
             AND ps.is_in_squad = TRUE
         ),
-        key_players AS (
-            SELECT DISTINCT 
+        latest_stats AS (
+            SELECT 
                 prs.player_id,
                 prs.player_name,
                 prs.overall_importance_score,
-                prs.form_rating
+                prs.form_rating,
+                ROW_NUMBER() OVER (
+                    PARTITION BY prs.player_id 
+                    ORDER BY prs.start_time DESC
+                ) as rn
             FROM player_running_stats prs
             JOIN current_squad cs ON prs.player_id = cs.player_id
             WHERE prs.team_id = ?
             AND prs.overall_importance_score >= 15
             AND prs.form_rating >= 15
-            ORDER BY prs.start_time DESC
         )
-        SELECT * FROM key_players
-        WHERE player_id NOT IN (
+        SELECT 
+            player_id,
+            player_name,
+            overall_importance_score,
+            form_rating
+        FROM latest_stats
+        WHERE rn = 1
+        AND player_id NOT IN (
             SELECT player_id 
             FROM player_running_stats 
             WHERE match_id = ? 
