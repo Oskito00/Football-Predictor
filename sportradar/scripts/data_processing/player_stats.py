@@ -237,7 +237,7 @@ def update_squad_status(conn, player_stats):
         conn.rollback()
         raise
 
-def process_match_stats(conn, fixture_id, home_team_id, away_team_id, start_time):
+def process_match_stats(conn, fixture_id, home_team_id, away_team_id, start_time, home_team_name, away_team_name):
     """
     Process all players' stats for a match and update their running stats
     Returns processed count and key player information
@@ -269,16 +269,24 @@ def process_match_stats(conn, fixture_id, home_team_id, away_team_id, start_time
     away_missing = get_missing_key_players(conn, fixture_id, away_team_id, start_time)
     
     # Get key players info
-    home_count, home_key_players = get_key_players_count(conn, home_team_id)
-    away_count, away_key_players = get_key_players_count(conn, away_team_id)
+    home_count, home_key_players = get_key_players_count(conn, home_team_id, start_time)
+    away_count, away_key_players = get_key_players_count(conn, away_team_id, start_time)
     
-    print(f"\nKey players for {home_team_id}:")
+    print(f"\nKey players for {home_team_name}:")
     for player in home_key_players:
         print(f"  - {player['player_name']}: Importance={player['importance']}, Form={player['form']}")
     
-    print(f"\nKey players for {away_team_id}:")
+    print("Home key players missing:")
+    for player in home_missing:
+        print(f"  - {player['player_name']}: Importance={player['importance_score']}, Form={player['form_rating']}")
+    
+    print(f"\nKey players for {away_team_name}:")
     for player in away_key_players:
         print(f"  - {player['player_name']}: Importance={player['importance']}, Form={player['form']}")
+
+    print("Away key players missing:")
+    for player in away_missing:
+        print(f"  - {player['player_name']}: Importance={player['importance_score']}, Form={player['form_rating']}")
     
     return {
         'processed_count': processed_count,
@@ -347,31 +355,35 @@ def get_missing_key_players(conn, match_id, team_id, start_time):
         for row in cursor.fetchall()
     ]
 
-def get_key_players_count(conn, team_id):
+def get_key_players_count(conn, team_id, start_time):
     """Get count and details of key players for a team"""
     cursor = conn.cursor()
     cursor.execute("""
-        WITH player_stats AS (
+        WITH latest_stats AS (
             SELECT 
                 prs.player_id,
                 prs.player_name,
-                AVG(overall_importance_score) as avg_importance,
-                AVG(form_rating) as avg_form
+                prs.overall_importance_score,
+                prs.form_rating,
+                ROW_NUMBER() OVER (
+                    PARTITION BY prs.player_id 
+                    ORDER BY prs.start_time DESC
+                ) as rn
             FROM player_running_stats prs
             WHERE team_id = ?
-            AND datetime(start_time) >= datetime('now', '-90 days')
-            GROUP BY player_id, player_name
+            AND prs.overall_importance_score >= 15
+            AND prs.form_rating >= 15
+            AND datetime(prs.start_time) >= datetime(?, '-30 days')
         )
         SELECT 
             player_id,
             player_name,
-            ROUND(avg_importance, 2) as importance,
-            ROUND(avg_form, 2) as form
-        FROM player_stats
-        WHERE avg_importance >= 15
-        AND avg_form >= 15
-        ORDER BY avg_importance DESC
-    """, (team_id,))
+            overall_importance_score as importance,
+            form_rating as form
+        FROM latest_stats
+        WHERE rn = 1
+        ORDER BY overall_importance_score DESC
+    """, (team_id, start_time))
     
     players = [
         {

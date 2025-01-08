@@ -68,30 +68,10 @@ def create_training_data(db_path, output_dir, debug_mode=False):
                 # NEW: Process player stats for this match
                 #TODO: When I make this call, I need to extract Key player recent form, Squad strength (key players missing), and if possible the bench strength...
                 try:
-                    result = process_match_stats(conn, match['fixture_id'], match['home_team_id'], match['away_team_id'], match['start_time'])
+                    result = process_match_stats(conn, match['fixture_id'], match['home_team_id'], match['away_team_id'], match['start_time'], match['home_team'], match['away_team'])
                     print(f"\nProcessed {result['processed_count']} players for match {match['fixture_id']}")
                     print(f"Home Team vs Away Team: {match['home_team']} vs {match['away_team']}")
-                    
-                    # # Home team missing players
-                    # print(f"\nHome team missing {len(result['home_key_players_missing'])} key players:")
-                    # if result['home_key_players_missing']:
-                    #     for player in result['home_key_players_missing']:
-                    #         print(f"  - {player['player_name']} (ID: {player['player_id']})")
-                    #         print(f"    Importance: {player['importance_score']:.2f}")
-                    #         print(f"    Form: {player['form_rating']:.2f}")
-                    
-                    # # Away team missing players
-                    # print(f"\nAway team missing {len(result['away_key_players_missing'])} key players:")
-                    # if result['away_key_players_missing']:
-                    #     for player in result['away_key_players_missing']:
-                    #         print(f"  - {player['player_name']} (ID: {player['player_id']})")
-                    #         print(f"    Importance: {player['importance_score']:.2f}")
-                    #         print(f"    Form: {player['form_rating']:.2f}")
-                    
-                    # print(f"\nSquad Strength:")
-                    # print(f"  Home: {result['home_squad_strength']} key players available")
-                    # print(f"  Away: {result['away_squad_strength']} key players available")
-                    
+                                        
                 except ValueError as error:
                     print(f"Skipping player stats for match {match['fixture_id']}: {str(error)}")
                 except Exception as error:
