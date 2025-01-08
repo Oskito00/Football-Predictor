@@ -64,9 +64,6 @@ def create_training_data(db_path, output_dir, debug_mode=False):
                 add_points_for_team(conn, match)
 
 
-
-                # NEW: Process player stats for this match
-                #TODO: When I make this call, I need to extract Key player recent form, Squad strength (key players missing), and if possible the bench strength...
                 try:
                     result = process_match_stats(conn, match['fixture_id'], match['home_team_id'], match['away_team_id'], match['start_time'], match['home_team'], match['away_team'])
                     print(f"\nProcessed {result['processed_count']} players for match {match['fixture_id']}")
