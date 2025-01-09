@@ -75,8 +75,7 @@ def create_training_data(db_path, output_dir, debug_mode=False):
                     print(f"Error processing player stats for match {match['fixture_id']}: {str(error)}")
                     if debug_mode:
                         raise
-
-
+                
                 # Create basic row data
                 basic_row = {
                     'fixture_id': match['fixture_id'],
@@ -94,14 +93,16 @@ def create_training_data(db_path, output_dir, debug_mode=False):
                     'average_away_win_rate': average_away_stats['average_win_rate'],
                     'average_away_clean_sheets': average_away_stats['average_clean_sheets'],
                 }
-                if (average_home_stats.get('has_advanced_stats') == 0 and average_away_stats.get('has_advanced_stats') == 0):
+                if (average_home_stats.get('has_advanced_stats') == 0 and average_away_stats.get('has_advanced_stats') == 0) and result['home_squad_strength'] is None and result['away_squad_strength'] is None:
+                    basic_row['home_squad_strength'] = result['home_squad_strength']
+                    basic_row['away_squad_strength'] = result['away_squad_strength']
                     basic_row['home_goals'] = match['home_goals']
                     basic_row['away_goals'] = match['away_goals']
                     basic_data.append(basic_row)
 
                 
                 # Process advanced stats if available
-                if average_home_stats.get('has_advanced_stats') == 1 and average_away_stats.get('has_advanced_stats') == 1:
+                if average_home_stats.get('has_advanced_stats') == 1 and average_away_stats.get('has_advanced_stats') == 1 and result['home_squad_strength'] is not None and result['away_squad_strength'] is not None:
                     advanced_row = basic_row.copy()
                     advanced_row.update({
                         'home_pass_effectiveness': average_home_stats['pass_effectiveness'],
@@ -112,6 +113,8 @@ def create_training_data(db_path, output_dir, debug_mode=False):
                         'away_shot_accuracy': average_away_stats['shot_accuracy'],
                         'away_conversion_rate': average_away_stats['conversion_rate'],
                         'away_defensive_success': average_away_stats['defensive_success'],
+                        'home_squad_strength': result['home_squad_strength'],
+                        'away_squad_strength': result['away_squad_strength'],
                         'home_goals': match['home_goals'],
                         'away_goals': match['away_goals'],
                     })

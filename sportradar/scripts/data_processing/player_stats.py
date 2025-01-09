@@ -55,7 +55,58 @@ def initialize_player_database(conn):
 def calculate_player_match_importance(player_stats):
     """
     Calculate a player's match importance score (0-35) with scaled defensive actions
+    Returns None if insufficient data (>50% None values)
     """
+    
+    # Check if we have enough valid data
+    relevant_stats = [
+        # Basic
+        'minutes_played',
+        
+        # Goalkeeper specific
+        'diving_saves',
+        'penalties_saved',
+        'shots_faced_saved',
+        'shots_faced_total',
+        'goals_conceded',
+        'penalties_faced',  # Added for GK penalties
+        
+        # Distribution/Passing (both GK and outfield)
+        'passes_total',
+        'passes_successful',
+        'long_passes_successful',
+        
+        # Goal Contributions (outfield)
+        'goals_scored',
+        'assists',
+        'chances_created',
+        
+        # Defensive Actions
+        'tackles_successful',
+        'clearances',
+        'interceptions',
+        'defensive_blocks',
+        
+        # Ball Control
+        'dribbles_completed',
+        'crosses_successful',
+        
+        # Negative Actions
+        'yellow_cards',
+        'red_cards',
+        'loss_of_possession',
+        'fouls_committed'
+    ]
+    
+    # If more than 50% of stats are None, return None for match importance...
+    none_count = sum(1 for stat in relevant_stats if player_stats.get(stat) is None)
+    if none_count / len(relevant_stats) > 0.5:  # More than 50% are None
+        return None
+        
+    # If player didn't play, return None
+    if player_stats.get('minutes_played', 0) == 0:
+        return None
+    
     # Default all stats to 0 if None
     stats = {k: (v if v is not None else 0) for k, v in player_stats.items()}
     
@@ -160,7 +211,8 @@ def update_player_running_stats(conn, player_stats):
         cursor.execute("""
             SELECT match_importance_score 
             FROM player_running_stats 
-            WHERE player_id = ? 
+            WHERE player_id = ?
+            AND match_importance_score IS NOT NULL
             ORDER BY start_time DESC 
             LIMIT 20
         """, (player_stats['player_id'],))
@@ -194,47 +246,6 @@ def update_player_running_stats(conn, player_stats):
 
     except Exception as error:
         print(f"Error updating player {player_stats.get('player_name', 'unknown')}: {str(error)}")
-        raise
-
-def update_squad_status(conn, player_stats):
-    """
-    Update player's squad status after each match
-    """
-    cursor = conn.cursor()
-    
-    try:
-        # Update or insert player status
-        cursor.execute("""
-            INSERT INTO player_squad_status (
-                player_id, team_id, player_name, last_appearance, is_in_squad
-            ) VALUES (?, ?, ?, ?, TRUE)
-            ON CONFLICT(player_id, team_id) DO UPDATE SET
-                last_appearance = ?,
-                is_in_squad = TRUE
-        """, (
-            player_stats['player_id'],
-            player_stats['team_id'],
-            player_stats['player_name'],
-            player_stats['start_time'],
-            player_stats['start_time']
-        ))
-        
-        # Update is_in_squad for players who haven't played in 30 days
-        cursor.execute("""
-            UPDATE player_squad_status
-            SET is_in_squad = FALSE
-            WHERE team_id = ?
-            AND datetime(last_appearance) < datetime(?, '-30 days')
-        """, (
-            player_stats['team_id'],
-            player_stats['start_time']
-        ))
-        
-        conn.commit()
-        
-    except Exception as e:
-        print(f"Error updating squad status: {str(e)}")
-        conn.rollback()
         raise
 
 def process_match_stats(conn, fixture_id, home_team_id, away_team_id, start_time, home_team_name, away_team_name):
@@ -274,22 +285,27 @@ def process_match_stats(conn, fixture_id, home_team_id, away_team_id, start_time
 
     home_team_strength = calculate_squad_strength(home_key_players, home_missing)
     away_team_strength = calculate_squad_strength(away_key_players, away_missing)
+
     
     print(f"\nKey players for {home_team_name}:")
     for player in home_key_players:
-        print(f"  - {player['player_name']}: Importance={player['importance']}, Form={player['form']}")
+        print(f"  - {player['player_name']}: Importance={player['importance']}, Form={player['form']}, Average Score={player['average_score']}")
     
     print("Home key players missing:")
     for player in home_missing:
-        print(f"  - {player['player_name']}: Importance={player['importance_score']}, Form={player['form_rating']}")
+        print(f"  - {player['player_name']}: Importance={player['importance_score']}, Form={player['form_rating']}, Average Score={player['average_score']}")
+
+    print("Home Team Strength: ", home_team_strength)
     
     print(f"\nKey players for {away_team_name}:")
     for player in away_key_players:
-        print(f"  - {player['player_name']}: Importance={player['importance']}, Form={player['form']}")
+        print(f"  - {player['player_name']}: Importance={player['importance']}, Form={player['form']}, Average Score={player['average_score']}")
 
     print("Away key players missing:")
     for player in away_missing:
-        print(f"  - {player['player_name']}: Importance={player['importance_score']}, Form={player['form_rating']}")
+        print(f"  - {player['player_name']}: Importance={player['importance_score']}, Form={player['form_rating']}, Average Score={player['average_score']}")
+    
+    print("Away Team Strength: ", away_team_strength)
     
     return {
         'processed_count': processed_count,
@@ -321,6 +337,7 @@ def get_missing_key_players(conn, match_id, team_id, start_time):
                 prs.player_name,
                 prs.overall_importance_score,
                 prs.form_rating,
+                (prs.overall_importance_score * 0.4 + prs.form_rating * 0.6) as average_score,
                 prs.start_time,
                 ROW_NUMBER() OVER (
                     PARTITION BY prs.player_id 
@@ -337,7 +354,8 @@ def get_missing_key_players(conn, match_id, team_id, start_time):
             player_id,
             player_name,
             overall_importance_score,
-            form_rating
+            form_rating,
+            average_score
         FROM latest_stats
         WHERE rn = 1
         AND player_id NOT IN (
@@ -346,6 +364,7 @@ def get_missing_key_players(conn, match_id, team_id, start_time):
             WHERE match_id = ? 
             AND team_id = ?
         )
+        ORDER BY average_score DESC
     """, (team_id, team_id, start_time, match_id, team_id))
     
     return [
@@ -353,7 +372,8 @@ def get_missing_key_players(conn, match_id, team_id, start_time):
             'player_id': row[0],
             'player_name': row[1],
             'importance_score': row[2],
-            'form_rating': row[3]
+            'form_rating': row[3],
+            'average_score': row[4]
         }
         for row in cursor.fetchall()
     ]
@@ -368,6 +388,7 @@ def get_key_players_count(conn, team_id, start_time):
                 prs.player_name,
                 prs.overall_importance_score,
                 prs.form_rating,
+                (prs.overall_importance_score * 0.4 + prs.form_rating * 0.6) as average_score,
                 ROW_NUMBER() OVER (
                     PARTITION BY prs.player_id 
                     ORDER BY prs.start_time DESC
@@ -382,10 +403,11 @@ def get_key_players_count(conn, team_id, start_time):
             player_id,
             player_name,
             overall_importance_score as importance,
-            form_rating as form
+            form_rating as form,
+            average_score
         FROM latest_stats
         WHERE rn = 1
-        ORDER BY overall_importance_score DESC
+        ORDER BY average_score DESC
     """, (team_id, start_time))
     
     players = [
@@ -393,7 +415,8 @@ def get_key_players_count(conn, team_id, start_time):
             'player_id': row[0],
             'player_name': row[1],
             'importance': row[2],
-            'form': row[3]
+            'form': row[3],
+            'average_score': row[4]
         }
         for row in cursor.fetchall()
     ]
@@ -464,5 +487,38 @@ def get_match_player_stats(conn, match_id):
         print(f"Error getting player stats for match {match_id}: {str(e)}")
         raise
 
-
-def calculate_squad_strength(key_players, missing_players):
+def calculate_squad_strength(all_key_players, missing_players):
+    """
+    Calculate squad strength based on weighted importance of available players
+    
+    Args:
+        all_key_players: List of all key players with their scores
+        missing_players: List of missing key players
+    
+    Returns:
+        float: Squad strength score between 0 and 1
+    """
+    #TODO: Would be good to identify an average score across all teams and put that instead of None so we have more data.
+    if not all_key_players:
+        return None
+        
+    # Create a set of missing player IDs for quick lookup
+    missing_ids = {p['player_id'] for p in missing_players}
+    
+    # Calculate maximum possible strength (weighted by position in ranking)
+    max_strength = 0
+    actual_strength = 0
+    
+    for i, player in enumerate(all_key_players):
+        # Weight by position (higher ranked players count more)
+        position_weight = 1 / (i + 1)  # 1st = 1.0, 2nd = 0.5, 3rd = 0.33, etc.
+        player_weight = position_weight * player['average_score']
+        
+        max_strength += player_weight
+        
+        # If player is available (not in missing_ids), add to actual strength
+        if player['player_id'] not in missing_ids:
+            actual_strength += player_weight
+    
+    # Return ratio of actual to maximum strength
+    return actual_strength / max_strength if max_strength > 0 else 0.0
