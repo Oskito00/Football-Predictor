@@ -102,114 +102,148 @@ def get_previous_matches(conn, team_name, before_match_date):
     return [dict(zip(columns, row)) for row in cursor.fetchall()]
 
 
-def calculate_form(conn, before_match_date):
-    cursor = conn.cursor()
-
-    home_previous_5_matches = get_previous_matches(conn, before_match_date['home_team'], before_match_date['start_time'])
-    away_previous_5_matches = get_previous_matches(conn, before_match_date['away_team'], before_match_date['start_time'])
-
-    # Define stats to track and their initial values
-    stat_definitions = {
-        'goals_scored': {'sum': 0, 'divisor': 0},
-        'goals_conceded': {'sum': 0, 'divisor': 0},
-        'wins': {'sum': 0, 'divisor': 0},
-        'clean_sheets': {'sum': 0, 'divisor': 0},
-        'passes_successful': {'sum': 0, 'divisor': 0},
-        'passes_total': {'sum': 0, 'divisor': 0},
-        'shots_on_target': {'sum': 0, 'divisor': 0},
-        'shots_total': {'sum': 0, 'divisor': 0},
-        'tackles_successful': {'sum': 0, 'divisor': 0},
-        'tackles_total': {'sum': 0, 'divisor': 0},
-        'chances_created': {'sum': 0, 'divisor': 0}
-    }
-
-    # Initialize stats for both teams
-    home_stats = {stat: dict(values) for stat, values in stat_definitions.items()}
-    away_stats = {stat: dict(values) for stat, values in stat_definitions.items()}
-
-    # Process home team stats
-    for match in home_previous_5_matches:
-        for stat in home_stats:
-            if stat == 'wins':
-                value = 1 if match['match_outcome'] == 'win' else 0
-            elif stat == 'clean_sheets':
-                # Clean sheet for home team when away_goals is 0
-                value = 1 if match.get('goals_conceded') == 0 else 0
-            else:
-                value = match.get(stat)
-            
-            if value is not None:
-                home_stats[stat]['sum'] += value
-                home_stats[stat]['divisor'] += 1
-
-    # Process away team stats
-    for match in away_previous_5_matches:
-        for stat in away_stats:
-            if stat == 'wins':
-                value = 1 if match['match_outcome'] == 'win' else 0
-            elif stat == 'clean_sheets':
-                # Clean sheet for home team when away_goals is 0
-                value = 1 if match.get('goals_conceded') == 0 else 0
-            else:
-                value = match.get(stat)
-            
-            if value is not None:
-                away_stats[stat]['sum'] += value
-                away_stats[stat]['divisor'] += 1
-
-    # Check if we have enough data for advanced stats (at least 2 matches worth of data for each metric)
-    def has_enough_advanced_stats(stats):
-        """
-        Check if there's enough data for advanced stats calculations.
-        Debug version with print statements.
-        """
-        advanced_stat_requirements = {
-        'pass_effectiveness': ['passes_successful', 'passes_total'],
-        'shot_accuracy': ['shots_on_target', 'shots_total'],
-        'conversion_rate': ['goals_scored', 'shots_on_target'],
-        'defensive_success': ['tackles_successful', 'tackles_total']
-    }
-    
-        for metric, required_stats in advanced_stat_requirements.items():
-            min_matches = min(stats[stat]['divisor'] for stat in required_stats)
-            
-            if min_matches < 2:
-                print(f"  Failed: {metric} has insufficient matches")
-                return False
-            
-            # Check ratio pairs
-            if metric == 'pass_effectiveness':
-                if stats['passes_successful']['divisor'] != stats['passes_total']['divisor']:
-                    print("  Failed: pass effectiveness divisors don't match")
-                    return False
-            elif metric == 'shot_accuracy':
-                if stats['shots_on_target']['divisor'] != stats['shots_total']['divisor']:
-                    print("  Failed: shot accuracy divisors don't match")
-                    return False
-            elif metric == 'conversion_rate':
-                if stats['goals_scored']['divisor'] != stats['shots_on_target']['divisor']:
-                    print("  Failed: conversion rate divisors don't match")
-                    return False
-            elif metric == 'defensive_success':
-                if stats['tackles_successful']['divisor'] != stats['tackles_total']['divisor']:
-                    print("  Failed: defensive success divisors don't match")
-                    return False
+def calculate_form(conn, before_match_date, debug_file='form_calculation_debug.txt'):
+    """Calculate form with detailed debugging output to file"""
+    with open(debug_file, 'a') as f:
+        f.write(f"\n{'='*80}\n")
+        f.write(f"NEW CALCULATION: {datetime.now()}\n")
+        f.write(f"Match: {before_match_date['home_team']} vs {before_match_date['away_team']}\n")
+        f.write(f"Date: {before_match_date['start_time']}\n\n")
         
-        print("\nAll advanced stats requirements met!")
-        return True
-    
-    print(f"\nProcessing match for {before_match_date['home_team']} vs {before_match_date['away_team']}")
+        cursor = conn.cursor()
 
-    # Set has_advanced_stats flag based on data availability
-    home_stats['has_advanced_stats'] = 1 if has_enough_advanced_stats(home_stats) else 0
-    print('Home stats advanced stats: ', home_stats['has_advanced_stats'])
-    away_stats['has_advanced_stats'] = 1 if has_enough_advanced_stats(away_stats) else 0
-    print('Away stats advanced stats: ', away_stats['has_advanced_stats'])
+        # Get previous matches
+        home_previous_5_matches = get_previous_matches(conn, before_match_date['home_team'], before_match_date['start_time'])
+        away_previous_5_matches = get_previous_matches(conn, before_match_date['away_team'], before_match_date['start_time'])
+        
+        f.write("Previous matches found:\n")
+        f.write(f"Home team ({before_match_date['home_team']}):\n")
+        for match in home_previous_5_matches:
+            f.write(f"  {match}\n")
+        f.write(f"\nAway team ({before_match_date['away_team']}):\n")
+        for match in away_previous_5_matches:
+            f.write(f"  {match}\n")
+        f.write("\n")
 
-    home_metrics = calculate_metrics(home_stats)
-    away_metrics = calculate_metrics(away_stats)
+        # Define and initialize stats
+        stat_definitions = {
+            'goals_scored': {'sum': 0, 'divisor': 0},
+            'goals_conceded': {'sum': 0, 'divisor': 0},
+            'wins': {'sum': 0, 'divisor': 0},
+            'clean_sheets': {'sum': 0, 'divisor': 0},
+            'passes_successful': {'sum': 0, 'divisor': 0},
+            'passes_total': {'sum': 0, 'divisor': 0},
+            'shots_on_target': {'sum': 0, 'divisor': 0},
+            'shots_total': {'sum': 0, 'divisor': 0},
+            'tackles_successful': {'sum': 0, 'divisor': 0},
+            'tackles_total': {'sum': 0, 'divisor': 0},
+            'chances_created': {'sum': 0, 'divisor': 0}
+        }
 
-    return home_metrics, away_metrics
+        home_stats = {stat: dict(values) for stat, values in stat_definitions.items()}
+        away_stats = {stat: dict(values) for stat, values in stat_definitions.items()}
+
+        # Process home team stats
+        f.write("\nProcessing HOME team stats:\n")
+        for match in home_previous_5_matches:
+            f.write(f"\nMatch ID: {match.get('match_id')}\n")
+            for stat in home_stats:
+                if stat == 'wins':
+                    value = 1 if match['match_outcome'] == 'win' else 0
+                    f.write(f"  Win: {value} (outcome was {match['match_outcome']})\n")
+                elif stat == 'clean_sheets':
+                    value = 1 if match.get('goals_conceded') == 0 else 0
+                    f.write(f"  Clean sheet: {value} (goals conceded: {match.get('goals_conceded')})\n")
+                else:
+                    value = match.get(stat)
+                    f.write(f"  {stat}: {value}\n")
+                
+                if value is not None:
+                    home_stats[stat]['sum'] += value
+                    home_stats[stat]['divisor'] += 1
+
+        # Process away team stats
+        f.write("\nProcessing AWAY team stats:\n")
+        for match in away_previous_5_matches:
+            f.write(f"\nMatch ID: {match.get('match_id')}\n")
+            for stat in away_stats:
+                if stat == 'wins':
+                    value = 1 if match['match_outcome'] == 'win' else 0
+                    f.write(f"  Win: {value} (outcome was {match['match_outcome']})\n")
+                elif stat == 'clean_sheets':
+                    value = 1 if match.get('goals_conceded') == 0 else 0
+                    f.write(f"  Clean sheet: {value} (goals conceded: {match.get('goals_conceded')})\n")
+                else:
+                    value = match.get(stat)
+                    f.write(f"  {stat}: {value}\n")
+                
+                if value is not None:
+                    away_stats[stat]['sum'] += value
+                    away_stats[stat]['divisor'] += 1
+
+        # Write accumulated stats
+        f.write("\nAccumulated HOME stats:\n")
+        for stat, values in home_stats.items():
+            f.write(f"  {stat}: sum={values['sum']}, divisor={values['divisor']}\n")
+            
+        f.write("\nAccumulated AWAY stats:\n")
+        for stat, values in away_stats.items():
+            f.write(f"  {stat}: sum={values['sum']}, divisor={values['divisor']}\n")
+
+        # Advanced stats check
+        def has_enough_advanced_stats(stats):
+            f.write("\nChecking advanced stats requirements:\n")
+            advanced_stat_requirements = {
+                'pass_effectiveness': ['passes_successful', 'passes_total'],
+                'shot_accuracy': ['shots_on_target', 'shots_total'],
+                'defensive_success': ['tackles_successful', 'tackles_total']
+            }
+            
+            # Check minimum matches for all stats including conversion rate components
+            all_required_stats = set()
+            for stats_pair in advanced_stat_requirements.values():
+                all_required_stats.update(stats_pair)
+            all_required_stats.update(['goals_scored', 'shots_on_target'])  # Add conversion rate components
+            
+            for stat in all_required_stats:
+                if stats[stat]['divisor'] < 2:
+                    f.write(f"  Failed: {stat} has insufficient matches\n")
+                    return False
+            
+            # Check divisor pairs (excluding conversion rate)
+            for metric, required_stats in advanced_stat_requirements.items():
+                stat1, stat2 = required_stats
+                f.write(f"  Checking {metric} divisors: {stat1}={stats[stat1]['divisor']}, {stat2}={stats[stat2]['divisor']}\n")
+                if stats[stat1]['divisor'] != stats[stat2]['divisor']:
+                    f.write(f"  Failed: {metric} divisors don't match\n")
+                    return False
+            
+            f.write("  All advanced stats requirements met!\n")
+            return True
+
+        f.write(f"\nProcessing match for {before_match_date['home_team']} vs {before_match_date['away_team']}\n")
+
+        # Set has_advanced_stats flag
+        home_stats['has_advanced_stats'] = 1 if has_enough_advanced_stats(home_stats) else 0
+        f.write(f'Home stats has_advanced_stats: {home_stats["has_advanced_stats"]}\n')
+        away_stats['has_advanced_stats'] = 1 if has_enough_advanced_stats(away_stats) else 0
+        f.write(f'Away stats has_advanced_stats: {away_stats["has_advanced_stats"]}\n')
+
+        # Calculate final metrics
+        home_metrics = calculate_metrics(home_stats)
+        away_metrics = calculate_metrics(away_stats)
+
+        f.write("\nFinal metrics:\n")
+        f.write("HOME metrics:\n")
+        for metric, value in home_metrics.items():
+            f.write(f"  {metric}: {value}\n")
+        f.write("AWAY metrics:\n")
+        for metric, value in away_metrics.items():
+            f.write(f"  {metric}: {value}\n")
+        
+        f.write(f"\nCalculation complete\n{'='*80}\n")
+
+        return home_metrics, away_metrics
 
 def add_team_stats(conn, match):
     cursor = conn.cursor()
@@ -611,7 +645,8 @@ def calculate_metrics(stats):
             # Advanced metrics
             'pass_effectiveness': stats['passes_successful']['sum'] / max(stats['passes_total']['sum'], 1),
             'shot_accuracy': stats['shots_on_target']['sum'] / max(stats['shots_total']['sum'], 1),
-            'conversion_rate': stats['goals_scored']['sum'] / max(stats['shots_on_target']['sum'], 1),
+            'conversion_rate': (stats['goals_scored']['sum'] / max(stats['goals_scored']['divisor'], 1)) / 
+                             (stats['shots_on_target']['sum'] / max(stats['shots_on_target']['divisor'], 1)),
             'defensive_success': stats['tackles_successful']['sum'] / max(stats['tackles_total']['sum'], 1),
             'has_advanced_stats': 1
         }

@@ -104,17 +104,17 @@ def create_training_data(db_path, output_dir, debug_mode=False):
                 # Process advanced stats if available
                 if average_home_stats.get('has_advanced_stats') == 1 and average_away_stats.get('has_advanced_stats') == 1 and result['home_squad_strength'] is not None and result['away_squad_strength'] is not None:
                     advanced_row = basic_row.copy()
-                    advanced_row.update({
-                        'home_pass_effectiveness': average_home_stats['pass_effectiveness'],
-                        'home_shot_accuracy': average_home_stats['shot_accuracy'],
-                        'home_conversion_rate': average_home_stats['conversion_rate'],
-                        'home_defensive_success': average_home_stats['defensive_success'],
-                        'away_pass_effectiveness': average_away_stats['pass_effectiveness'],
-                        'away_shot_accuracy': average_away_stats['shot_accuracy'],
-                        'away_conversion_rate': average_away_stats['conversion_rate'],
-                        'away_defensive_success': average_away_stats['defensive_success'],
-                        'home_squad_strength': result['home_squad_strength'],
-                        'away_squad_strength': result['away_squad_strength'],
+                    advanced_row.update({ #TODO: Check if rounding here increases time complexity
+                        'home_pass_effectiveness': round(average_home_stats['pass_effectiveness'], 2),
+                        'home_shot_accuracy': round(average_home_stats['shot_accuracy'], 2),
+                        'home_conversion_rate': round(average_home_stats['conversion_rate'], 2),
+                        'home_defensive_success': round(average_home_stats['defensive_success'], 2),
+                        'away_pass_effectiveness': round(average_away_stats['pass_effectiveness'], 2),
+                        'away_shot_accuracy': round(average_away_stats['shot_accuracy'], 2),
+                        'away_conversion_rate': round(average_away_stats['conversion_rate'], 2),
+                        'away_defensive_success': round(average_away_stats['defensive_success'], 2),
+                        'home_squad_strength': round(result['home_squad_strength'], 2),
+                        'away_squad_strength': round(result['away_squad_strength'], 2),
                         'home_goals': match['home_goals'],
                         'away_goals': match['away_goals'],
                     })

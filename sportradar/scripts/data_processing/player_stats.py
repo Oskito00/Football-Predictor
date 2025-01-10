@@ -318,20 +318,13 @@ def process_match_stats(conn, fixture_id, home_team_id, away_team_id, start_time
     }
 
 #Helper functions
-
+#TODO: Simplify both of these functions to do it in one check, get all key players, are they missing?
 def get_missing_key_players(conn, match_id, team_id, start_time):
     """Get key players who didn't play in this match"""
     cursor = conn.cursor()
     
-    # Get current squad players with high importance scores
     cursor.execute("""
-        WITH current_squad AS (
-            SELECT ps.player_id, ps.player_name
-            FROM player_squad_status ps
-            WHERE ps.team_id = ? 
-            AND ps.is_in_squad = TRUE
-        ),
-        latest_stats AS (
+        WITH latest_stats AS (
             SELECT 
                 prs.player_id,
                 prs.player_name,
@@ -344,7 +337,6 @@ def get_missing_key_players(conn, match_id, team_id, start_time):
                     ORDER BY prs.start_time DESC
                 ) as rn
             FROM player_running_stats prs
-            JOIN current_squad cs ON prs.player_id = cs.player_id
             WHERE prs.team_id = ?
             AND prs.overall_importance_score >= 15
             AND prs.form_rating >= 15
@@ -365,7 +357,7 @@ def get_missing_key_players(conn, match_id, team_id, start_time):
             AND team_id = ?
         )
         ORDER BY average_score DESC
-    """, (team_id, team_id, start_time, match_id, team_id))
+    """, (team_id, start_time, match_id, team_id))
     
     return [
         {
