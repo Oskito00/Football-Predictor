@@ -674,146 +674,110 @@ def calculate_team_fatigue(recent_matches, reference_date):
     
     return round(fatigue_score, 3)
 
-def getH2h_stats(conn, team1_id, team2_id, current_match_time, debug_file='h2h_stats_debug.txt'):
-    with open(debug_file, 'a') as f:
-        f.write(f"\n{'='*80}\n")
-        f.write(f"H2H CALCULATION: {datetime.now()}\n")
-        f.write(f"For match at: {current_match_time}\n")
-        
-        # Get team names
-        team1_name = conn.execute("SELECT home_team_name FROM matches WHERE home_team_id = ? LIMIT 1", (team1_id,)).fetchone()[0]
-        team2_name = conn.execute("SELECT home_team_name FROM matches WHERE home_team_id = ? LIMIT 1", (team2_id,)).fetchone()[0]
-        
-        f.write(f"Team 1: {team1_name} ({team1_id})\n")
-        f.write(f"Team 2: {team2_name} ({team2_id})\n\n")
+def getH2h_stats(conn, team1_id, team2_id, current_match_time):
+    """Calculate head-to-head statistics between two teams before a given match time."""
+    
+    # Input validation
+    if not team1_id or not team2_id:
+        raise ValueError("Both team IDs must be provided")
+    
+    if team1_id == team2_id:
+        raise ValueError("Team IDs must be different")
 
-        # Input validation
-        if not team1_id or not team2_id:
-            f.write("ERROR: Both team IDs must be provided\n")
-            raise ValueError("Both team IDs must be provided")
-        
-        if team1_id == team2_id:
-            f.write("ERROR: Team IDs must be different\n")
-            raise ValueError("Team IDs must be different")
+    # Verify teams exist in database
+    team_check_query = "SELECT COUNT(*) FROM matches WHERE home_team_id = ? OR away_team_id = ?"
+    for team_id in [team1_id, team2_id]:
+        count = conn.execute(team_check_query, (team_id, team_id)).fetchone()[0]
+        if count == 0:
+            raise ValueError(f"Team ID {team_id} not found in database")
 
-        # Verify teams exist in database
-        team_check_query = "SELECT COUNT(*) FROM matches WHERE home_team_id = ? OR away_team_id = ?"
-        for team_id in [team1_id, team2_id]:
-            count = conn.execute(team_check_query, (team_id, team_id)).fetchone()[0]
-            if count == 0:
-                f.write(f"ERROR: Team ID {team_id} not found in database\n")
-                raise ValueError(f"Team ID {team_id} not found in database")
+    query = """
+    SELECT
+        home_team_id,
+        away_team_id,
+        home_score,
+        away_score,
+        start_time
+    FROM matches 
+    WHERE match_status = 'ended'
+        AND start_time < ?
+        AND ((home_team_id = ? AND away_team_id = ?)
+        OR (home_team_id = ? AND away_team_id = ?))
+    ORDER BY start_time DESC
+    """
+    
+    # Check if there are any completed matches between these teams
+    matches = list(conn.execute(query, (current_match_time, team1_id, team2_id, team2_id, team1_id)))
+    if not matches:
+        return None
 
-        query = """
-        SELECT
-            home_team_id,
-            away_team_id,
-            home_score,
-            away_score,
-            start_time
-        FROM matches 
-        WHERE match_status = 'ended'
-            AND start_time < ?
-            AND ((home_team_id = ? AND away_team_id = ?)
-            OR (home_team_id = ? AND away_team_id = ?))
-        ORDER BY start_time DESC
-        """
-        
-        # Check if there are any completed matches between these teams
-        matches = list(conn.execute(query, (current_match_time, team1_id, team2_id, team2_id, team1_id)))
-        if not matches:
-            f.write("No completed matches found between these teams before current match time\n")
-            return None
-
-        f.write("Previous Matches:\n")
-        f.write(f"{'Date':<20} {'Home':<30} {'Score':<10} {'Away':<30}\n")
-        f.write("-" * 90 + "\n")
-
-        # Initialize stats dictionaries for both teams
-        stats = {
-            team1_id: {"goals": 0, "clean_sheets": 0, "points": 0, "games": 0},
-            team2_id: {"goals": 0, "clean_sheets": 0, "points": 0, "games": 0}
-        }
-        
-        try:
-            # Process results
-            for match in matches:
-                home_id = match[0]
-                away_id = match[1] 
-                home_score = match[2]
-                away_score = match[3]
-                match_date = match[4]
-                
-                home_name = team1_name if home_id == team1_id else team2_name
-                away_name = team2_name if away_id == team2_id else team1_name
-                
-                f.write(f"{match_date[:10]:<20} {home_name:<30} {f'{home_score}-{away_score}':<10} {away_name:<30}\n")
-                
-                # Validate scores
-                if home_score is None or away_score is None:
-                    continue
-                
-                # Add goals
-                if home_id == team1_id:
-                    stats[team1_id]["goals"] += home_score
-                    stats[team2_id]["goals"] += away_score
-                else:
-                    stats[team1_id]["goals"] += away_score 
-                    stats[team2_id]["goals"] += home_score
-
-                # Add clean sheets
-                if home_id == team1_id:
-                    if away_score == 0:
-                        stats[team1_id]["clean_sheets"] += 1
-                    if home_score == 0:
-                        stats[team2_id]["clean_sheets"] += 1
-                else:
-                    if home_score == 0:
-                        stats[team1_id]["clean_sheets"] += 1
-                    if away_score == 0:
-                        stats[team2_id]["clean_sheets"] += 1
-
-                # Add points
-                if home_score > away_score:
-                    stats[home_id]["points"] += 3
-                elif home_score < away_score:
-                    stats[away_id]["points"] += 3
-                else:
-                    stats[home_id]["points"] += 1
-                    stats[away_id]["points"] += 1
-
-                # Increment games counter
-                stats[team1_id]["games"] += 1
-                stats[team2_id]["games"] += 1
-
-            # Calculate and write averages
-            f.write("\nCalculated Averages:\n")
-            for team_id in stats:
-                team_name = team1_name if team_id == team1_id else team2_name
-                games = stats[team_id]["games"]
-                if games > 0:
-                    avg_goals = round(stats[team_id]["goals"] / games, 2)
-                    avg_clean_sheets = round(stats[team_id]["clean_sheets"] / games, 2)
-                    avg_points = round(stats[team_id]["points"] / games, 2)
-                    
-                    f.write(f"\n{team_name}:\n")
-                    f.write(f"  Average Goals: {avg_goals}\n")
-                    f.write(f"  Average Clean Sheets: {avg_clean_sheets}\n")
-                    f.write(f"  Average Points: {avg_points}\n")
-                    
-                    stats[team_id]["avg_goals"] = avg_goals
-                    stats[team_id]["avg_clean_sheets"] = avg_clean_sheets
-                    stats[team_id]["avg_points"] = avg_points
-                
-                # Clean up working stats
-                del stats[team_id]["goals"]
-                del stats[team_id]["clean_sheets"]
-                del stats[team_id]["points"]
+    # Initialize stats dictionaries for both teams
+    stats = {
+        team1_id: {"goals": 0, "clean_sheets": 0, "points": 0, "games": 0},
+        team2_id: {"goals": 0, "clean_sheets": 0, "points": 0, "games": 0}
+    }
+    
+    try:
+        # Process results
+        for match in matches:
+            home_id = match[0]
+            away_id = match[1] 
+            home_score = match[2]
+            away_score = match[3]
             
-            f.write(f"\n{'='*80}\n")
-            return stats
+            # Validate scores
+            if home_score is None or away_score is None:
+                continue
+            
+            # Add goals
+            if home_id == team1_id:
+                stats[team1_id]["goals"] += home_score
+                stats[team2_id]["goals"] += away_score
+            else:
+                stats[team1_id]["goals"] += away_score 
+                stats[team2_id]["goals"] += home_score
 
-        except Exception as e:
-            f.write(f"Error processing head-to-head stats: {str(e)}\n")
-            return None
+            # Add clean sheets
+            if home_id == team1_id:
+                if away_score == 0:
+                    stats[team1_id]["clean_sheets"] += 1
+                if home_score == 0:
+                    stats[team2_id]["clean_sheets"] += 1
+            else:
+                if home_score == 0:
+                    stats[team1_id]["clean_sheets"] += 1
+                if away_score == 0:
+                    stats[team2_id]["clean_sheets"] += 1
+
+            # Add points
+            if home_score > away_score:
+                stats[home_id]["points"] += 3
+            elif home_score < away_score:
+                stats[away_id]["points"] += 3
+            else:
+                stats[home_id]["points"] += 1
+                stats[away_id]["points"] += 1
+
+            # Increment games counter
+            stats[team1_id]["games"] += 1
+            stats[team2_id]["games"] += 1
+
+        # Calculate averages
+        for team_id in stats:
+            games = stats[team_id]["games"]
+            if games > 0:
+                stats[team_id]["avg_goals"] = round(stats[team_id]["goals"] / games, 2)
+                stats[team_id]["avg_clean_sheets"] = round(stats[team_id]["clean_sheets"] / games, 2)
+                stats[team_id]["avg_points"] = round(stats[team_id]["points"] / games, 2)
+            
+            # Clean up working stats
+            del stats[team_id]["goals"]
+            del stats[team_id]["clean_sheets"]
+            del stats[team_id]["points"]
+            
+        return stats
+
+    except Exception as e:
+        print(f"Error processing head-to-head stats: {str(e)}")
+        return None
 
