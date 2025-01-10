@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timedelta
 import sqlite3
 import pandas as pd
 import numpy as np
@@ -103,27 +103,35 @@ def get_previous_matches(conn, team_name, before_match_date):
 
 
 def calculate_form(conn, before_match_date, debug_file='form_calculation_debug.txt'):
-    """Calculate form with detailed debugging output to file"""
+    """Calculate form with fatigue debugging output to file"""
     with open(debug_file, 'a') as f:
         f.write(f"\n{'='*80}\n")
-        f.write(f"NEW CALCULATION: {datetime.now()}\n")
+        f.write(f"FATIGUE CALCULATION: {datetime.now()}\n")
         f.write(f"Match: {before_match_date['home_team']} vs {before_match_date['away_team']}\n")
-        f.write(f"Date: {before_match_date['start_time']}\n\n")
+        f.write(f"Reference Date: {before_match_date['start_time']}\n\n")
         
         cursor = conn.cursor()
 
         # Get previous matches
         home_previous_5_matches = get_previous_matches(conn, before_match_date['home_team'], before_match_date['start_time'])
         away_previous_5_matches = get_previous_matches(conn, before_match_date['away_team'], before_match_date['start_time'])
+
+        # Calculate fatigue and debug output
+        home_fatigue = calculate_team_fatigue(home_previous_5_matches, before_match_date['start_time'])
+        away_fatigue = calculate_team_fatigue(away_previous_5_matches, before_match_date['start_time'])
         
-        f.write("Previous matches found:\n")
-        f.write(f"Home team ({before_match_date['home_team']}):\n")
+        f.write(f"Home team ({before_match_date['home_team']}) matches for fatigue calculation:\n")
         for match in home_previous_5_matches:
-            f.write(f"  {match}\n")
-        f.write(f"\nAway team ({before_match_date['away_team']}):\n")
+            f.write(f"  {match['start_time']}\n")
+            
+        f.write(f"\nAway team ({before_match_date['away_team']}) matches for fatigue calculation:\n")
         for match in away_previous_5_matches:
-            f.write(f"  {match}\n")
-        f.write("\n")
+            f.write(f"  {match['start_time']}\n")
+        
+        f.write(f"\nFatigue Scores:\n")
+        f.write(f"Home team fatigue: {home_fatigue}\n")
+        f.write(f"Away team fatigue: {away_fatigue}\n")
+        f.write(f"{'='*80}\n")
 
         # Define and initialize stats
         stat_definitions = {
@@ -137,111 +145,74 @@ def calculate_form(conn, before_match_date, debug_file='form_calculation_debug.t
             'shots_total': {'sum': 0, 'divisor': 0},
             'tackles_successful': {'sum': 0, 'divisor': 0},
             'tackles_total': {'sum': 0, 'divisor': 0},
-            'chances_created': {'sum': 0, 'divisor': 0}
+            'chances_created': {'sum': 0, 'divisor': 0},
         }
 
         home_stats = {stat: dict(values) for stat, values in stat_definitions.items()}
         away_stats = {stat: dict(values) for stat, values in stat_definitions.items()}
 
         # Process home team stats
-        f.write("\nProcessing HOME team stats:\n")
         for match in home_previous_5_matches:
-            f.write(f"\nMatch ID: {match.get('match_id')}\n")
             for stat in home_stats:
                 if stat == 'wins':
                     value = 1 if match['match_outcome'] == 'win' else 0
-                    f.write(f"  Win: {value} (outcome was {match['match_outcome']})\n")
                 elif stat == 'clean_sheets':
                     value = 1 if match.get('goals_conceded') == 0 else 0
-                    f.write(f"  Clean sheet: {value} (goals conceded: {match.get('goals_conceded')})\n")
                 else:
                     value = match.get(stat)
-                    f.write(f"  {stat}: {value}\n")
                 
                 if value is not None:
                     home_stats[stat]['sum'] += value
                     home_stats[stat]['divisor'] += 1
 
         # Process away team stats
-        f.write("\nProcessing AWAY team stats:\n")
         for match in away_previous_5_matches:
-            f.write(f"\nMatch ID: {match.get('match_id')}\n")
             for stat in away_stats:
                 if stat == 'wins':
                     value = 1 if match['match_outcome'] == 'win' else 0
-                    f.write(f"  Win: {value} (outcome was {match['match_outcome']})\n")
                 elif stat == 'clean_sheets':
                     value = 1 if match.get('goals_conceded') == 0 else 0
-                    f.write(f"  Clean sheet: {value} (goals conceded: {match.get('goals_conceded')})\n")
                 else:
                     value = match.get(stat)
-                    f.write(f"  {stat}: {value}\n")
                 
                 if value is not None:
                     away_stats[stat]['sum'] += value
                     away_stats[stat]['divisor'] += 1
 
-        # Write accumulated stats
-        f.write("\nAccumulated HOME stats:\n")
-        for stat, values in home_stats.items():
-            f.write(f"  {stat}: sum={values['sum']}, divisor={values['divisor']}\n")
-            
-        f.write("\nAccumulated AWAY stats:\n")
-        for stat, values in away_stats.items():
-            f.write(f"  {stat}: sum={values['sum']}, divisor={values['divisor']}\n")
-
         # Advanced stats check
         def has_enough_advanced_stats(stats):
-            f.write("\nChecking advanced stats requirements:\n")
             advanced_stat_requirements = {
                 'pass_effectiveness': ['passes_successful', 'passes_total'],
                 'shot_accuracy': ['shots_on_target', 'shots_total'],
                 'defensive_success': ['tackles_successful', 'tackles_total']
             }
             
-            # Check minimum matches for all stats including conversion rate components
             all_required_stats = set()
             for stats_pair in advanced_stat_requirements.values():
                 all_required_stats.update(stats_pair)
-            all_required_stats.update(['goals_scored', 'shots_on_target'])  # Add conversion rate components
+            all_required_stats.update(['goals_scored', 'shots_on_target'])
             
             for stat in all_required_stats:
                 if stats[stat]['divisor'] < 2:
-                    f.write(f"  Failed: {stat} has insufficient matches\n")
                     return False
             
-            # Check divisor pairs (excluding conversion rate)
             for metric, required_stats in advanced_stat_requirements.items():
                 stat1, stat2 = required_stats
-                f.write(f"  Checking {metric} divisors: {stat1}={stats[stat1]['divisor']}, {stat2}={stats[stat2]['divisor']}\n")
                 if stats[stat1]['divisor'] != stats[stat2]['divisor']:
-                    f.write(f"  Failed: {metric} divisors don't match\n")
                     return False
             
-            f.write("  All advanced stats requirements met!\n")
             return True
-
-        f.write(f"\nProcessing match for {before_match_date['home_team']} vs {before_match_date['away_team']}\n")
 
         # Set has_advanced_stats flag
         home_stats['has_advanced_stats'] = 1 if has_enough_advanced_stats(home_stats) else 0
-        f.write(f'Home stats has_advanced_stats: {home_stats["has_advanced_stats"]}\n')
         away_stats['has_advanced_stats'] = 1 if has_enough_advanced_stats(away_stats) else 0
-        f.write(f'Away stats has_advanced_stats: {away_stats["has_advanced_stats"]}\n')
 
+        home_stats['fatigue'] = home_fatigue
+        away_stats['fatigue'] = away_fatigue
+        
         # Calculate final metrics
         home_metrics = calculate_metrics(home_stats)
         away_metrics = calculate_metrics(away_stats)
-
-        f.write("\nFinal metrics:\n")
-        f.write("HOME metrics:\n")
-        for metric, value in home_metrics.items():
-            f.write(f"  {metric}: {value}\n")
-        f.write("AWAY metrics:\n")
-        for metric, value in away_metrics.items():
-            f.write(f"  {metric}: {value}\n")
-        
-        f.write(f"\nCalculation complete\n{'='*80}\n")
 
         return home_metrics, away_metrics
 
@@ -648,6 +619,7 @@ def calculate_metrics(stats):
             'conversion_rate': (stats['goals_scored']['sum'] / max(stats['goals_scored']['divisor'], 1)) / 
                              (stats['shots_on_target']['sum'] / max(stats['shots_on_target']['divisor'], 1)),
             'defensive_success': stats['tackles_successful']['sum'] / max(stats['tackles_total']['sum'], 1),
+            'fatigue': stats.get('fatigue'),
             'has_advanced_stats': 1
         }
     else:
@@ -671,4 +643,53 @@ def get_stats_coverage(conn):
     cursor = conn.cursor()
     result = cursor.execute(query).fetchone()
     return result
+
+from datetime import datetime, timedelta
+
+def calculate_team_fatigue(recent_matches, reference_date):
+    """
+    Calculate team fatigue based on:
+    1. Days since last match
+    2. Number of matches in last 10 days
+    
+    Args:
+        recent_matches: List of match dictionaries with 'start_time'
+        reference_date: The date to calculate fatigue relative to (usually upcoming match date)
+        
+    Returns:
+        float: Fatigue score between 0-1 (1 being most fatigued)
+    """
+    if not recent_matches:
+        return 0.0
+        
+    # Convert reference_date to datetime if it's a string
+    if isinstance(reference_date, str):
+        reference_date = datetime.fromisoformat(reference_date.replace('Z', '+00:00'))
+    
+    # Convert all dates to datetime objects
+    match_dates = [datetime.fromisoformat(match['start_time'].replace('Z', '+00:00')) 
+                  for match in recent_matches]
+    match_dates.sort(reverse=True)  # Most recent first
+    
+    # Calculate days since last match
+    if match_dates:
+        days_since_last_match = (reference_date - match_dates[0]).total_seconds() / (24 * 3600)
+    else:
+        return 0.0
+    
+    # Calculate matches in last 10 days
+    ten_days_ago = reference_date - timedelta(days=10)
+    matches_in_ten_days = sum(1 for date in match_dates if date >= ten_days_ago)
+    
+    # Calculate fatigue components
+    # Days since last match: 0 days = 1.0, 7+ days = 0.0
+    time_fatigue = max(0, 1 - (days_since_last_match / 7))
+    
+    # Matches in 10 days: 0 matches = 0.0, 5+ matches = 1.0
+    match_fatigue = min(1, matches_in_ten_days / 5)
+    
+    # Combine factors (equal weighting)
+    fatigue_score = (time_fatigue + match_fatigue) / 2
+    
+    return round(fatigue_score, 3)
 

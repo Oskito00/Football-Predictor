@@ -88,10 +88,13 @@ def create_training_data(db_path, output_dir, debug_mode=False):
                     'average_home_goals_conceded': average_home_stats['average_goals_conceded'],
                     'average_home_win_rate': average_home_stats['average_win_rate'],
                     'average_home_clean_sheets': average_home_stats['average_clean_sheets'],
+                    'average_home_fatigue': average_home_stats.get('fatigue'),
                     'average_away_goals_scored': average_away_stats['average_goals_scored'],
                     'average_away_goals_conceded': average_away_stats['average_goals_conceded'],
                     'average_away_win_rate': average_away_stats['average_win_rate'],
                     'average_away_clean_sheets': average_away_stats['average_clean_sheets'],
+                    'average_away_fatigue': average_away_stats.get('fatigue'),
+
                 }
                 if (average_home_stats.get('has_advanced_stats') == 0 and average_away_stats.get('has_advanced_stats') == 0) and result['home_squad_strength'] is None and result['away_squad_strength'] is None:
                     basic_row['home_squad_strength'] = result['home_squad_strength']
