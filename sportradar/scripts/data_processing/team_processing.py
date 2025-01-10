@@ -102,119 +102,100 @@ def get_previous_matches(conn, team_name, before_match_date):
     return [dict(zip(columns, row)) for row in cursor.fetchall()]
 
 
-def calculate_form(conn, before_match_date, debug_file='form_calculation_debug.txt'):
-    """Calculate form with fatigue debugging output to file"""
-    with open(debug_file, 'a') as f:
-        f.write(f"\n{'='*80}\n")
-        f.write(f"FATIGUE CALCULATION: {datetime.now()}\n")
-        f.write(f"Match: {before_match_date['home_team']} vs {before_match_date['away_team']}\n")
-        f.write(f"Reference Date: {before_match_date['start_time']}\n\n")
-        
-        cursor = conn.cursor()
+def calculate_form(conn, before_match_date):
+    """Calculate form metrics for both teams"""
+    cursor = conn.cursor()
 
-        # Get previous matches
-        home_previous_5_matches = get_previous_matches(conn, before_match_date['home_team'], before_match_date['start_time'])
-        away_previous_5_matches = get_previous_matches(conn, before_match_date['away_team'], before_match_date['start_time'])
+    # Get previous matches
+    home_previous_5_matches = get_previous_matches(conn, before_match_date['home_team'], before_match_date['start_time'])
+    away_previous_5_matches = get_previous_matches(conn, before_match_date['away_team'], before_match_date['start_time'])
 
-        # Calculate fatigue and debug output
-        home_fatigue = calculate_team_fatigue(home_previous_5_matches, before_match_date['start_time'])
-        away_fatigue = calculate_team_fatigue(away_previous_5_matches, before_match_date['start_time'])
-        
-        f.write(f"Home team ({before_match_date['home_team']}) matches for fatigue calculation:\n")
-        for match in home_previous_5_matches:
-            f.write(f"  {match['start_time']}\n")
+    # Calculate fatigue
+    home_fatigue = calculate_team_fatigue(home_previous_5_matches, before_match_date['start_time'])
+    away_fatigue = calculate_team_fatigue(away_previous_5_matches, before_match_date['start_time'])
+
+    # Define and initialize stats
+    stat_definitions = {
+        'goals_scored': {'sum': 0, 'divisor': 0},
+        'goals_conceded': {'sum': 0, 'divisor': 0},
+        'wins': {'sum': 0, 'divisor': 0},
+        'clean_sheets': {'sum': 0, 'divisor': 0},
+        'passes_successful': {'sum': 0, 'divisor': 0},
+        'passes_total': {'sum': 0, 'divisor': 0},
+        'shots_on_target': {'sum': 0, 'divisor': 0},
+        'shots_total': {'sum': 0, 'divisor': 0},
+        'tackles_successful': {'sum': 0, 'divisor': 0},
+        'tackles_total': {'sum': 0, 'divisor': 0},
+        'chances_created': {'sum': 0, 'divisor': 0},
+    }
+
+    home_stats = {stat: dict(values) for stat, values in stat_definitions.items()}
+    away_stats = {stat: dict(values) for stat, values in stat_definitions.items()}
+
+    # Process home team stats
+    for match in home_previous_5_matches:
+        for stat in home_stats:
+            if stat == 'wins':
+                value = 1 if match['match_outcome'] == 'win' else 0
+            elif stat == 'clean_sheets':
+                value = 1 if match.get('goals_conceded') == 0 else 0
+            else:
+                value = match.get(stat)
             
-        f.write(f"\nAway team ({before_match_date['away_team']}) matches for fatigue calculation:\n")
-        for match in away_previous_5_matches:
-            f.write(f"  {match['start_time']}\n")
-        
-        f.write(f"\nFatigue Scores:\n")
-        f.write(f"Home team fatigue: {home_fatigue}\n")
-        f.write(f"Away team fatigue: {away_fatigue}\n")
-        f.write(f"{'='*80}\n")
+            if value is not None:
+                home_stats[stat]['sum'] += value
+                home_stats[stat]['divisor'] += 1
 
-        # Define and initialize stats
-        stat_definitions = {
-            'goals_scored': {'sum': 0, 'divisor': 0},
-            'goals_conceded': {'sum': 0, 'divisor': 0},
-            'wins': {'sum': 0, 'divisor': 0},
-            'clean_sheets': {'sum': 0, 'divisor': 0},
-            'passes_successful': {'sum': 0, 'divisor': 0},
-            'passes_total': {'sum': 0, 'divisor': 0},
-            'shots_on_target': {'sum': 0, 'divisor': 0},
-            'shots_total': {'sum': 0, 'divisor': 0},
-            'tackles_successful': {'sum': 0, 'divisor': 0},
-            'tackles_total': {'sum': 0, 'divisor': 0},
-            'chances_created': {'sum': 0, 'divisor': 0},
+    # Process away team stats
+    for match in away_previous_5_matches:
+        for stat in away_stats:
+            if stat == 'wins':
+                value = 1 if match['match_outcome'] == 'win' else 0
+            elif stat == 'clean_sheets':
+                value = 1 if match.get('goals_conceded') == 0 else 0
+            else:
+                value = match.get(stat)
+            
+            if value is not None:
+                away_stats[stat]['sum'] += value
+                away_stats[stat]['divisor'] += 1
+
+    # Advanced stats check
+    def has_enough_advanced_stats(stats):
+        advanced_stat_requirements = {
+            'pass_effectiveness': ['passes_successful', 'passes_total'],
+            'shot_accuracy': ['shots_on_target', 'shots_total'],
+            'defensive_success': ['tackles_successful', 'tackles_total']
         }
-
-        home_stats = {stat: dict(values) for stat, values in stat_definitions.items()}
-        away_stats = {stat: dict(values) for stat, values in stat_definitions.items()}
-
-        # Process home team stats
-        for match in home_previous_5_matches:
-            for stat in home_stats:
-                if stat == 'wins':
-                    value = 1 if match['match_outcome'] == 'win' else 0
-                elif stat == 'clean_sheets':
-                    value = 1 if match.get('goals_conceded') == 0 else 0
-                else:
-                    value = match.get(stat)
-                
-                if value is not None:
-                    home_stats[stat]['sum'] += value
-                    home_stats[stat]['divisor'] += 1
-
-        # Process away team stats
-        for match in away_previous_5_matches:
-            for stat in away_stats:
-                if stat == 'wins':
-                    value = 1 if match['match_outcome'] == 'win' else 0
-                elif stat == 'clean_sheets':
-                    value = 1 if match.get('goals_conceded') == 0 else 0
-                else:
-                    value = match.get(stat)
-                
-                if value is not None:
-                    away_stats[stat]['sum'] += value
-                    away_stats[stat]['divisor'] += 1
-
-        # Advanced stats check
-        def has_enough_advanced_stats(stats):
-            advanced_stat_requirements = {
-                'pass_effectiveness': ['passes_successful', 'passes_total'],
-                'shot_accuracy': ['shots_on_target', 'shots_total'],
-                'defensive_success': ['tackles_successful', 'tackles_total']
-            }
-            
-            all_required_stats = set()
-            for stats_pair in advanced_stat_requirements.values():
-                all_required_stats.update(stats_pair)
-            all_required_stats.update(['goals_scored', 'shots_on_target'])
-            
-            for stat in all_required_stats:
-                if stats[stat]['divisor'] < 2:
-                    return False
-            
-            for metric, required_stats in advanced_stat_requirements.items():
-                stat1, stat2 = required_stats
-                if stats[stat1]['divisor'] != stats[stat2]['divisor']:
-                    return False
-            
-            return True
-
-        # Set has_advanced_stats flag
-        home_stats['has_advanced_stats'] = 1 if has_enough_advanced_stats(home_stats) else 0
-        away_stats['has_advanced_stats'] = 1 if has_enough_advanced_stats(away_stats) else 0
-
-        home_stats['fatigue'] = home_fatigue
-        away_stats['fatigue'] = away_fatigue
         
-        # Calculate final metrics
-        home_metrics = calculate_metrics(home_stats)
-        away_metrics = calculate_metrics(away_stats)
+        all_required_stats = set()
+        for stats_pair in advanced_stat_requirements.values():
+            all_required_stats.update(stats_pair)
+        all_required_stats.update(['goals_scored', 'shots_on_target'])
+        
+        for stat in all_required_stats:
+            if stats[stat]['divisor'] < 2:
+                return False
+        
+        for metric, required_stats in advanced_stat_requirements.items():
+            stat1, stat2 = required_stats
+            if stats[stat1]['divisor'] != stats[stat2]['divisor']:
+                return False
+        
+        return True
 
-        return home_metrics, away_metrics
+    # Set has_advanced_stats flag
+    home_stats['has_advanced_stats'] = 1 if has_enough_advanced_stats(home_stats) else 0
+    away_stats['has_advanced_stats'] = 1 if has_enough_advanced_stats(away_stats) else 0
+
+    home_stats['fatigue'] = home_fatigue
+    away_stats['fatigue'] = away_fatigue
+    
+    # Calculate final metrics
+    home_metrics = calculate_metrics(home_stats)
+    away_metrics = calculate_metrics(away_stats)
+
+    return home_metrics, away_metrics
 
 def add_team_stats(conn, match):
     cursor = conn.cursor()
@@ -692,4 +673,147 @@ def calculate_team_fatigue(recent_matches, reference_date):
     fatigue_score = (time_fatigue + match_fatigue) / 2
     
     return round(fatigue_score, 3)
+
+def getH2h_stats(conn, team1_id, team2_id, current_match_time, debug_file='h2h_stats_debug.txt'):
+    with open(debug_file, 'a') as f:
+        f.write(f"\n{'='*80}\n")
+        f.write(f"H2H CALCULATION: {datetime.now()}\n")
+        f.write(f"For match at: {current_match_time}\n")
+        
+        # Get team names
+        team1_name = conn.execute("SELECT home_team_name FROM matches WHERE home_team_id = ? LIMIT 1", (team1_id,)).fetchone()[0]
+        team2_name = conn.execute("SELECT home_team_name FROM matches WHERE home_team_id = ? LIMIT 1", (team2_id,)).fetchone()[0]
+        
+        f.write(f"Team 1: {team1_name} ({team1_id})\n")
+        f.write(f"Team 2: {team2_name} ({team2_id})\n\n")
+
+        # Input validation
+        if not team1_id or not team2_id:
+            f.write("ERROR: Both team IDs must be provided\n")
+            raise ValueError("Both team IDs must be provided")
+        
+        if team1_id == team2_id:
+            f.write("ERROR: Team IDs must be different\n")
+            raise ValueError("Team IDs must be different")
+
+        # Verify teams exist in database
+        team_check_query = "SELECT COUNT(*) FROM matches WHERE home_team_id = ? OR away_team_id = ?"
+        for team_id in [team1_id, team2_id]:
+            count = conn.execute(team_check_query, (team_id, team_id)).fetchone()[0]
+            if count == 0:
+                f.write(f"ERROR: Team ID {team_id} not found in database\n")
+                raise ValueError(f"Team ID {team_id} not found in database")
+
+        query = """
+        SELECT
+            home_team_id,
+            away_team_id,
+            home_score,
+            away_score,
+            start_time
+        FROM matches 
+        WHERE match_status = 'ended'
+            AND start_time < ?
+            AND ((home_team_id = ? AND away_team_id = ?)
+            OR (home_team_id = ? AND away_team_id = ?))
+        ORDER BY start_time DESC
+        """
+        
+        # Check if there are any completed matches between these teams
+        matches = list(conn.execute(query, (current_match_time, team1_id, team2_id, team2_id, team1_id)))
+        if not matches:
+            f.write("No completed matches found between these teams before current match time\n")
+            return None
+
+        f.write("Previous Matches:\n")
+        f.write(f"{'Date':<20} {'Home':<30} {'Score':<10} {'Away':<30}\n")
+        f.write("-" * 90 + "\n")
+
+        # Initialize stats dictionaries for both teams
+        stats = {
+            team1_id: {"goals": 0, "clean_sheets": 0, "points": 0, "games": 0},
+            team2_id: {"goals": 0, "clean_sheets": 0, "points": 0, "games": 0}
+        }
+        
+        try:
+            # Process results
+            for match in matches:
+                home_id = match[0]
+                away_id = match[1] 
+                home_score = match[2]
+                away_score = match[3]
+                match_date = match[4]
+                
+                home_name = team1_name if home_id == team1_id else team2_name
+                away_name = team2_name if away_id == team2_id else team1_name
+                
+                f.write(f"{match_date[:10]:<20} {home_name:<30} {f'{home_score}-{away_score}':<10} {away_name:<30}\n")
+                
+                # Validate scores
+                if home_score is None or away_score is None:
+                    continue
+                
+                # Add goals
+                if home_id == team1_id:
+                    stats[team1_id]["goals"] += home_score
+                    stats[team2_id]["goals"] += away_score
+                else:
+                    stats[team1_id]["goals"] += away_score 
+                    stats[team2_id]["goals"] += home_score
+
+                # Add clean sheets
+                if home_id == team1_id:
+                    if away_score == 0:
+                        stats[team1_id]["clean_sheets"] += 1
+                    if home_score == 0:
+                        stats[team2_id]["clean_sheets"] += 1
+                else:
+                    if home_score == 0:
+                        stats[team1_id]["clean_sheets"] += 1
+                    if away_score == 0:
+                        stats[team2_id]["clean_sheets"] += 1
+
+                # Add points
+                if home_score > away_score:
+                    stats[home_id]["points"] += 3
+                elif home_score < away_score:
+                    stats[away_id]["points"] += 3
+                else:
+                    stats[home_id]["points"] += 1
+                    stats[away_id]["points"] += 1
+
+                # Increment games counter
+                stats[team1_id]["games"] += 1
+                stats[team2_id]["games"] += 1
+
+            # Calculate and write averages
+            f.write("\nCalculated Averages:\n")
+            for team_id in stats:
+                team_name = team1_name if team_id == team1_id else team2_name
+                games = stats[team_id]["games"]
+                if games > 0:
+                    avg_goals = round(stats[team_id]["goals"] / games, 2)
+                    avg_clean_sheets = round(stats[team_id]["clean_sheets"] / games, 2)
+                    avg_points = round(stats[team_id]["points"] / games, 2)
+                    
+                    f.write(f"\n{team_name}:\n")
+                    f.write(f"  Average Goals: {avg_goals}\n")
+                    f.write(f"  Average Clean Sheets: {avg_clean_sheets}\n")
+                    f.write(f"  Average Points: {avg_points}\n")
+                    
+                    stats[team_id]["avg_goals"] = avg_goals
+                    stats[team_id]["avg_clean_sheets"] = avg_clean_sheets
+                    stats[team_id]["avg_points"] = avg_points
+                
+                # Clean up working stats
+                del stats[team_id]["goals"]
+                del stats[team_id]["clean_sheets"]
+                del stats[team_id]["points"]
+            
+            f.write(f"\n{'='*80}\n")
+            return stats
+
+        except Exception as e:
+            f.write(f"Error processing head-to-head stats: {str(e)}\n")
+            return None
 

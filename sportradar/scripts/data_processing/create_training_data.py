@@ -11,7 +11,7 @@ from constants import (
     DEBUG_ENDED_MATCHES_QUERY
 )
 from player_stats import initialize_player_database, process_match_stats
-from team_processing import add_points_for_team, add_team_stats, calculate_match_importance, calculate_form, get_league_positions, get_stats_coverage, get_team_points, initialize_database, get_previous_matches
+from team_processing import add_points_for_team, add_team_stats, calculate_match_importance, calculate_form, get_league_positions, get_stats_coverage, get_team_points, getH2h_stats, initialize_database, get_previous_matches
 
 
 def create_training_data(db_path, output_dir, debug_mode=False):
@@ -63,20 +63,31 @@ def create_training_data(db_path, output_dir, debug_mode=False):
                 match_importance = calculate_match_importance(conn, match)
                 add_points_for_team(conn, match)
 
+                # H2H Stats
+                h2h_stats = getH2h_stats(conn, match['home_team_id'], match['away_team_id'], match['start_time'])
+                
+                # Skip this match if no h2h stats available
+                if h2h_stats is None:
+                    print(f"Skipping match {match['fixture_id']}: No head-to-head history")
+                    continue
 
                 try:
-                    result = process_match_stats(conn, match['fixture_id'], match['home_team_id'], match['away_team_id'], match['start_time'], match['home_team'], match['away_team'])
+                    result = process_match_stats(conn, match['fixture_id'], match['home_team_id'], 
+                                               match['away_team_id'], match['start_time'], 
+                                               match['home_team'], match['away_team'])
                     print(f"\nProcessed {result['processed_count']} players for match {match['fixture_id']}")
                     print(f"Home Team vs Away Team: {match['home_team']} vs {match['away_team']}")
-                                        
+                                    
                 except ValueError as error:
                     print(f"Skipping player stats for match {match['fixture_id']}: {str(error)}")
+                    continue  # Skip this match if player stats processing fails
                 except Exception as error:
                     print(f"Error processing player stats for match {match['fixture_id']}: {str(error)}")
                     if debug_mode:
                         raise
-                
-                # Create basic row data
+                    continue
+
+                # Create basic row data only if we have h2h stats
                 basic_row = {
                     'fixture_id': match['fixture_id'],
                     'start_time': match['start_time'],
@@ -88,12 +99,18 @@ def create_training_data(db_path, output_dir, debug_mode=False):
                     'average_home_goals_conceded': average_home_stats['average_goals_conceded'],
                     'average_home_win_rate': average_home_stats['average_win_rate'],
                     'average_home_clean_sheets': average_home_stats['average_clean_sheets'],
-                    'average_home_fatigue': average_home_stats.get('fatigue'),
+                    'home_fatigue': average_home_stats.get('fatigue'),
                     'average_away_goals_scored': average_away_stats['average_goals_scored'],
                     'average_away_goals_conceded': average_away_stats['average_goals_conceded'],
                     'average_away_win_rate': average_away_stats['average_win_rate'],
                     'average_away_clean_sheets': average_away_stats['average_clean_sheets'],
-                    'average_away_fatigue': average_away_stats.get('fatigue'),
+                    'away_fatigue': average_away_stats.get('fatigue'),
+                    'home_h2h_avg_goals': h2h_stats[match['home_team_id']]['avg_goals'],
+                    'home_h2h_avg_clean_sheets': h2h_stats[match['home_team_id']]['avg_clean_sheets'],
+                    'home_h2h_avg_points': h2h_stats[match['home_team_id']]['avg_points'],
+                    'away_h2h_avg_goals': h2h_stats[match['away_team_id']]['avg_goals'],
+                    'away_h2h_avg_clean_sheets': h2h_stats[match['away_team_id']]['avg_clean_sheets'],
+                    'away_h2h_avg_points': h2h_stats[match['away_team_id']]['avg_points'],
 
                 }
                 if (average_home_stats.get('has_advanced_stats') == 0 and average_away_stats.get('has_advanced_stats') == 0) and result['home_squad_strength'] is None and result['away_squad_strength'] is None:
