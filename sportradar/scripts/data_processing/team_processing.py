@@ -127,13 +127,6 @@ def calculate_form(conn, before_match_date):
     home_stats = {stat: dict(values) for stat, values in stat_definitions.items()}
     away_stats = {stat: dict(values) for stat, values in stat_definitions.items()}
 
-    advanced_stat_requirements = {
-        'pass_effectiveness': ['passes_successful', 'passes_total'],
-        'shot_accuracy': ['shots_on_target', 'shots_total'],
-        'conversion_rate': ['goals_scored', 'shots_on_target'],
-        'defensive_success': ['tackles_successful', 'tackles_total']
-    }
-
     # Process home team stats
     for match in home_previous_5_matches:
         for stat in home_stats:
@@ -170,6 +163,13 @@ def calculate_form(conn, before_match_date):
         Check if there's enough data for advanced stats calculations.
         Debug version with print statements.
         """
+        advanced_stat_requirements = {
+        'pass_effectiveness': ['passes_successful', 'passes_total'],
+        'shot_accuracy': ['shots_on_target', 'shots_total'],
+        'conversion_rate': ['goals_scored', 'shots_on_target'],
+        'defensive_success': ['tackles_successful', 'tackles_total']
+    }
+    
         for metric, required_stats in advanced_stat_requirements.items():
             min_matches = min(stats[stat]['divisor'] for stat in required_stats)
             
@@ -202,7 +202,9 @@ def calculate_form(conn, before_match_date):
 
     # Set has_advanced_stats flag based on data availability
     home_stats['has_advanced_stats'] = 1 if has_enough_advanced_stats(home_stats) else 0
+    print('Home stats advanced stats: ', home_stats['has_advanced_stats'])
     away_stats['has_advanced_stats'] = 1 if has_enough_advanced_stats(away_stats) else 0
+    print('Away stats advanced stats: ', away_stats['has_advanced_stats'])
 
     home_metrics = calculate_metrics(home_stats)
     away_metrics = calculate_metrics(away_stats)

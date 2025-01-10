@@ -57,6 +57,7 @@ def create_tables(cursor):
     cursor.execute('''CREATE TABLE IF NOT EXISTS team_stats (
         match_id TEXT,
         team_id TEXT,
+        start_time TEXT,
         team_name TEXT,
         qualifier TEXT,
         ball_possession REAL,
@@ -305,11 +306,12 @@ def process_match_data(db_file):
                 for team in stats.get("totals", {}).get("competitors", []):
                     team_id = team.get("id")
                     team_name = team.get("name")
+                    start_time = match.get("start_time")
                     qualifier = team.get("qualifier")
                     team_stats = team.get("statistics", {})
                     
                     cursor.execute('''INSERT OR REPLACE INTO team_stats (
-                        match_id, team_id, team_name, qualifier,
+                        match_id, team_id,start_time, team_name, qualifier,
                         ball_possession, cards_given, chances_created, clearances, corner_kicks,
                         crosses_successful, crosses_total, crosses_unsuccessful, defensive_blocks,
                         diving_saves, dribbles_completed, fouls, free_kicks, goal_kicks, injuries,
@@ -318,9 +320,9 @@ def process_match_data(db_file):
                         red_cards, shots_blocked, shots_off_target, shots_on_target, shots_saved,
                         shots_total, substitutions, tackles_successful, tackles_total, tackles_unsuccessful,
                         throw_ins, was_fouled, yellow_cards, yellow_red_cards
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 
+                    ) VALUES (?, ?,?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 
                              ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
-                        (match_id, team_id, team_name, qualifier, *[team_stats.get(k) for k in [
+                        (match_id, team_id, start_time, team_name, qualifier, *[team_stats.get(k) for k in [
                             "ball_possession", "cards_given", "chances_created", "clearances",
                             "corner_kicks", "crosses_successful", "crosses_total", "crosses_unsuccessful",
                             "defensive_blocks", "diving_saves", "dribbles_completed", "fouls",
@@ -340,7 +342,6 @@ def process_match_data(db_file):
                         starter = player.get("starter", False)
                         start_time = match.get("start_time")
                         player_stats = player.get("statistics", {})
-                        print(player_stats)
                         
                         cursor.execute('''INSERT OR REPLACE INTO player_stats (
                             match_id, start_time, player_id, player_name, team_id, starter,
